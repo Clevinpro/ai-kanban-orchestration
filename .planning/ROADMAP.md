@@ -13,7 +13,7 @@ This roadmap builds a Claude Code multi-agent development automation system on t
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Foundation** - Task schema, CLAUDE.md layering, and context isolation rules that every phase depends on
+- [x] **Phase 1: Foundation** - Task schema, CLAUDE.md layering, and context isolation rules that every phase depends on
 - [ ] **Phase 2: TeamLead Skills** - `/team-lead:plan` and `/team-lead:execute` slash commands with safety guards
 - [ ] **Phase 3: Sub-Agents** - Six agent definitions (be-developer, fe-developer, code-reviewer, qa-be, qa-fe, team-lead-check)
 - [ ] **Phase 4: Pipeline Integration** - End-to-end sequential orchestration with rejection loops and final check gate
@@ -46,8 +46,8 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 01-03-PLAN.md — BE isolation: ai-platform/CLAUDE.md rewrite (allowlist-first) and be-conventions SKILL.md
-- [ ] 01-04-PLAN.md — FE isolation: ai-platform-fe/CLAUDE.md creation (allowlist-first) and fe-conventions SKILL.md
+- [x] 01-03-PLAN.md — BE isolation: ai-platform/CLAUDE.md rewrite (allowlist-first) and be-conventions SKILL.md
+- [x] 01-04-PLAN.md — FE isolation: ai-platform-fe/CLAUDE.md creation (allowlist-first) and fe-conventions SKILL.md
 
 ### Phase 2: TeamLead Skills
 
@@ -132,7 +132,7 @@ Phases execute in numeric order. Phases 3 and 5 can begin as soon as Phase 1 is 
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation | 2/4 | In Progress|  |
+| 1. Foundation | 4/4 | Complete | 2026-05-21 |
 | 2. TeamLead Skills | 0/TBD | Not started | - |
 | 3. Sub-Agents | 0/TBD | Not started | - |
 | 4. Pipeline Integration | 0/TBD | Not started | - |
