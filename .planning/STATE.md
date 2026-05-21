@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-02-PLAN.md (root CLAUDE.md + TeamLead stubs)
-last_updated: "2026-05-21T14:17:51Z"
+stopped_at: Completed 01-03-PLAN.md (BE isolation allowlist + be-conventions skill)
+last_updated: "2026-05-21T18:23:10Z"
 last_activity: 2026-05-21
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 4
-  completed_plans: 2
+  completed_plans: 3
   percent: 0
 ---
 
@@ -26,29 +26,29 @@ See: .planning/PROJECT.md (updated 2026-05-20)
 ## Current Position
 
 Phase: 01 (foundation) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Ready to execute
 Last activity: 2026-05-21
 
-Progress: [█████░░░░░] 50%
+Progress: [███████░░░] 75%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 2
-- Average duration: 8 min
-- Total execution time: 0.3 hours
+- Total plans completed: 3
+- Average duration: 7 min
+- Total execution time: 0.4 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 01-foundation | 2/4 | 23 min | 11.5 min |
+| 01-foundation | 3/4 | 27 min | 9 min |
 
 **Recent Trend:**
 
-- Last 5 plans: 01-01 (6 min), 01-02 (10 min)
+- Last 5 plans: 01-01 (6 min), 01-02 (10 min), 01-03 (4 min)
 - Trend: -
 
 *Updated after each plan completion*
@@ -69,6 +69,7 @@ Recent decisions affecting current work:
 - 01-01: Hook reconstructs full final content on Edit path to validate repo field and inject updated-at — blocks two-step repo:both injection
 - 01-02: Root CLAUDE.md rewritten as 33-line routing constitution — no tech stack labels (NestJS/React removed from Repos section to satisfy no-tech-stack constraint)
 - 01-02: TeamLead stubs created at .claude/commands/team-lead/ — FOUND-06/07 constraints visible in both plan.md and execute.md
+- 01-03: ai-platform/CLAUDE.md rewritten as 21-line isolation-first allowlist — NestJS conventions moved to be-conventions/SKILL.md (D-05, D-06, D-07)
 
 ### Pending Todos
 
@@ -87,6 +88,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-05-21T14:17:51Z
-Stopped at: Completed 01-02-PLAN.md (root CLAUDE.md + TeamLead stubs)
-Resume file: .planning/phases/01-foundation/01-03-PLAN.md
+Last session: 2026-05-21T18:23:10Z
+Stopped at: Completed 01-03-PLAN.md (BE isolation allowlist + be-conventions skill)
+Resume file: .planning/phases/01-foundation/01-04-PLAN.md
