@@ -90,6 +90,16 @@
         ]
       },
       {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"/Users/tarasbannyi/.nvm/versions/node/v22.18.0/bin/node\" \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/task-state-guard.js",
+            "timeout": 5
+          }
+        ]
+      },
+      {
         "matcher": "Bash",
         "hooks": [
           {
