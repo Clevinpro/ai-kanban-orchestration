@@ -1,0 +1,533 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Debug AntiCorruptionLayer Service",
+      "skipFiles": [
+        "<node_internals>/**"
+      ],
+      "program": "${workspaceFolder}/backend/antiCorruptionLayer/src/main.ts",
+      "outFiles": [
+        "${workspaceFolder}/backend/antiCorruptionLayer/dist/**/*.js"
+      ],
+      "envFile": "${workspaceFolder}/backend/antiCorruptionLayer/.env",
+      "console": "integratedTerminal",
+      "runtimeArgs": [
+        "--nolazy",
+        "-r",
+        "ts-node/register",
+        "-r",
+        "tsconfig-paths/register"
+      ],
+      "outputCapture": "std",
+      "sourceMaps": true,
+      "cwd": "${workspaceRoot}"
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Debug Assignation Service",
+      "skipFiles": [
+        "<node_internals>/**"
+      ],
+      "program": "${workspaceFolder}/backend/assignation/src/main.ts",
+      "outFiles": [
+        "${workspaceFolder}/backend/assignation/dist/**/*.js"
+      ],
+      "envFile": "${workspaceFolder}/backend/assignation/.env",
+      "console": "integratedTerminal",
+      "runtimeArgs": [
+        "--nolazy",
+        "-r",
+        "ts-node/register",
+        "-r",
+        "tsconfig-paths/register"
+      ],
+      "outputCapture": "std",
+      "sourceMaps": true,
+      "cwd": "${workspaceRoot}"
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Debug Boilerplate Service",
+      "skipFiles": [
+        "<node_internals>/**"
+      ],
+      "program": "${workspaceFolder}/backend/boilerplate/src/main.ts",
+      "outFiles": [
+        "${workspaceFolder}/backend/boilerplate/dist/**/*.js"
+      ],
+      "envFile": "${workspaceFolder}/backend/boilerplate/.env",
+      "console": "integratedTerminal",
+      "runtimeArgs": [
+        "--nolazy",
+        "-r",
+        "ts-node/register",
+        "-r",
+        "tsconfig-paths/register"
+      ],
+      "outputCapture": "std",
+      "sourceMaps": true,
+      "cwd": "${workspaceRoot}"
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Debug Exam Service",
+      "skipFiles": [
+        "<node_internals>/**"
+      ],
+      "program": "${workspaceFolder}/backend/exam/src/main.ts",
+      "outFiles": [
+        "${workspaceFolder}/backend/exam/dist/**/*.js"
+      ],
+      "envFile": "${workspaceFolder}/backend/exam/.env",
+      "console": "integratedTerminal",
+      "runtimeArgs": [
+        "--nolazy",
+        "-r",
+        "ts-node/register",
+        "-r",
+        "tsconfig-paths/register"
+      ],
+      "outputCapture": "std",
+      "sourceMaps": true,
+      "cwd": "${workspaceRoot}"
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Debug ExamTest Service",
+      "skipFiles": [
+        "<node_internals>/**"
+      ],
+      "program": "${workspaceFolder}/backend/examTest/src/main.ts",
+      "outFiles": [
+        "${workspaceFolder}/backend/examTest/dist/**/*.js"
+      ],
+      "envFile": "${workspaceFolder}/backend/examTest/.env",
+      "console": "integratedTerminal",
+      "runtimeArgs": [
+        "--nolazy",
+        "-r",
+        "ts-node/register",
+        "-r",
+        "tsconfig-paths/register"
+      ],
+      "outputCapture": "std",
+      "sourceMaps": true,
+      "cwd": "${workspaceRoot}"
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Debug Feature Flags Service",
+      "skipFiles": [
+        "<node_internals>/**"
+      ],
+      "program": "${workspaceFolder}/backend/featureFlags/src/main.ts",
+      "outFiles": [
+        "${workspaceFolder}/backend/featureFlags/dist/**/*.js"
+      ],
+      "envFile": "${workspaceFolder}/backend/featureFlags/.env",
+      "console": "integratedTerminal",
+      "runtimeArgs": [
+        "--nolazy",
+        "-r",
+        "ts-node/register",
+        "-r",
+        "tsconfig-paths/register"
+      ],
+      "outputCapture": "std",
+      "sourceMaps": true,
+      "cwd": "${workspaceRoot}"
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Debug Queue Service",
+      "skipFiles": [
+        "<node_internals>/**"
+      ],
+      "program": "${workspaceFolder}/backend/queue/src/main.ts",
+      "outFiles": [
+        "${workspaceFolder}/backend/queue/dist/**/*.js"
+      ],
+      "envFile": "${workspaceFolder}/backend/queue/.env",
+      "console": "integratedTerminal",
+      "runtimeArgs": [
+        "--nolazy",
+        "-r",
+        "ts-node/register",
+        "-r",
+        "tsconfig-paths/register"
+      ],
+      "outputCapture": "std",
+      "sourceMaps": true,
+      "cwd": "${workspaceRoot}"
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Debug Job Service",
+      "skipFiles": [
+        "<node_internals>/**"
+      ],
+      "program": "${workspaceFolder}/backend/job/src/main.ts",
+      "outFiles": [
+        "${workspaceFolder}/backend/job/dist/**/*.js"
+      ],
+      "envFile": "${workspaceFolder}/backend/job/.env",
+      "console": "integratedTerminal",
+      "runtimeArgs": [
+        "--nolazy",
+        "-r",
+        "ts-node/register",
+        "-r",
+        "tsconfig-paths/register"
+      ],
+      "outputCapture": "std",
+      "sourceMaps": true,
+      "cwd": "${workspaceRoot}"
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Debug PACS Service",
+      "skipFiles": [
+        "<node_internals>/**"
+      ],
+      "program": "${workspaceFolder}/backend/pacs/src/main.ts",
+      "outFiles": [
+        "${workspaceFolder}/backend/pacs/dist/**/*.js"
+      ],
+      "envFile": "${workspaceFolder}/backend/pacs/.env",
+      "console": "integratedTerminal",
+      "runtimeArgs": [
+        "--nolazy",
+        "-r",
+        "ts-node/register",
+        "-r",
+        "tsconfig-paths/register"
+      ],
+      "outputCapture": "std",
+      "sourceMaps": true,
+      "cwd": "${workspaceRoot}"
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Debug Panel Service",
+      "skipFiles": [
+        "<node_internals>/**"
+      ],
+      "program": "${workspaceFolder}/backend/panel/src/main.ts",
+      "outFiles": [
+        "${workspaceFolder}/backend/panel/dist/**/*.js"
+      ],
+      "envFile": "${workspaceFolder}/backend/panel/.env",
+      "console": "integratedTerminal",
+      "runtimeArgs": [
+        "--nolazy",
+        "-r",
+        "ts-node/register",
+        "-r",
+        "tsconfig-paths/register"
+      ],
+      "outputCapture": "std",
+      "sourceMaps": true,
+      "cwd": "${workspaceRoot}"
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Debug Practice Service",
+      "skipFiles": [
+        "<node_internals>/**"
+      ],
+      "program": "${workspaceFolder}/backend/practice/src/main.ts",
+      "outFiles": [
+        "${workspaceFolder}/backend/practice/dist/**/*.js"
+      ],
+      "envFile": "${workspaceFolder}/backend/practice/.env",
+      "console": "integratedTerminal",
+      "runtimeArgs": [
+        "--nolazy",
+        "-r",
+        "ts-node/register",
+        "-r",
+        "tsconfig-paths/register"
+      ],
+      "outputCapture": "std",
+      "sourceMaps": true,
+      "cwd": "${workspaceRoot}"
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Debug Store Service",
+      "skipFiles": [
+        "<node_internals>/**"
+      ],
+      "program": "${workspaceFolder}/backend/store/src/main.ts",
+      "outFiles": [
+        "${workspaceFolder}/backend/store/dist/**/*.js"
+      ],
+      "envFile": "${workspaceFolder}/backend/store/.env",
+      "console": "integratedTerminal",
+      "runtimeArgs": [
+        "--nolazy",
+        "-r",
+        "ts-node/register",
+        "-r",
+        "tsconfig-paths/register"
+      ],
+      "outputCapture": "std",
+      "sourceMaps": true,
+      "cwd": "${workspaceRoot}"
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Debug Patient Service",
+      "skipFiles": [
+        "<node_internals>/**"
+      ],
+      "program": "${workspaceFolder}/backend/patient/src/main.ts",
+      "outFiles": [
+        "${workspaceFolder}/backend/patient/dist/**/*.js"
+      ],
+      "envFile": "${workspaceFolder}/backend/patient/.env",
+      "console": "integratedTerminal",
+      "runtimeArgs": [
+        "--nolazy",
+        "-r",
+        "ts-node/register",
+        "-r",
+        "tsconfig-paths/register"
+      ],
+      "outputCapture": "std",
+      "sourceMaps": true,
+      "cwd": "${workspaceRoot}"
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Debug PatientLink Service",
+      "skipFiles": [
+        "<node_internals>/**"
+      ],
+      "program": "${workspaceFolder}/backend/patientLink/src/main.ts",
+      "outFiles": [
+        "${workspaceFolder}/backend/patientLink/dist/**/*.js"
+      ],
+      "envFile": "${workspaceFolder}/backend/patientLink/.env",
+      "console": "integratedTerminal",
+      "runtimeArgs": [
+        "--nolazy",
+        "-r",
+        "ts-node/register",
+        "-r",
+        "tsconfig-paths/register"
+      ],
+      "outputCapture": "std",
+      "sourceMaps": true,
+      "cwd": "${workspaceRoot}"
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Debug Masterdata Service",
+      "skipFiles": [
+        "<node_internals>/**"
+      ],
+      "program": "${workspaceFolder}/backend/masterdata/src/main.ts",
+      "outFiles": [
+        "${workspaceFolder}/backend/masterdata/dist/**/*.js"
+      ],
+      "envFile": "${workspaceFolder}/backend/masterdata/.env",
+      "console": "integratedTerminal",
+      "runtimeArgs": [
+        "--nolazy",
+        "-r",
+        "ts-node/register",
+        "-r",
+        "tsconfig-paths/register"
+      ],
+      "outputCapture": "std",
+      "sourceMaps": true,
+      "cwd": "${workspaceRoot}"
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Debug Admin Service",
+      "skipFiles": [
+        "<node_internals>/**"
+      ],
+      "program": "${workspaceFolder}/backend/admin/src/main.ts",
+      "outFiles": [
+        "${workspaceFolder}/backend/admin/dist/**/*.js"
+      ],
+      "envFile": "${workspaceFolder}/backend/admin/.env",
+      "console": "integratedTerminal",
+      "runtimeArgs": [
+        "--nolazy",
+        "-r",
+        "ts-node/register",
+        "-r",
+        "tsconfig-paths/register"
+      ],
+      "outputCapture": "std",
+      "sourceMaps": true,
+      "cwd": "${workspaceRoot}"
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Debug Configuration Service",
+      "skipFiles": [
+        "<node_internals>/**"
+      ],
+      "program": "${workspaceFolder}/backend/configuration/src/main.ts",
+      "outFiles": [
+        "${workspaceFolder}/backend/configuration/dist/**/*.js"
+      ],
+      "envFile": "${workspaceFolder}/backend/configuration/.env",
+      "console": "integratedTerminal",
+      "runtimeArgs": [
+        "--nolazy",
+        "-r",
+        "ts-node/register",
+        "-r",
+        "tsconfig-paths/register"
+      ],
+      "outputCapture": "std",
+      "sourceMaps": true,
+      "cwd": "${workspaceRoot}"
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Debug Export Service",
+      "skipFiles": [
+        "<node_internals>/**"
+      ],
+      "program": "${workspaceFolder}/backend/export/src/main.ts",
+      "outFiles": [
+        "${workspaceFolder}/backend/export/dist/**/*.js"
+      ],
+      "envFile": "${workspaceFolder}/backend/export/.env",
+      "console": "integratedTerminal",
+      "runtimeArgs": [
+        "--nolazy",
+        "-r",
+        "ts-node/register",
+        "-r",
+        "tsconfig-paths/register"
+      ],
+      "outputCapture": "std",
+      "sourceMaps": true,
+      "cwd": "${workspaceRoot}"
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Debug ExamDocument Service",
+      "skipFiles": [
+        "<node_internals>/**"
+      ],
+      "program": "${workspaceFolder}/backend/examDocument/src/main.ts",
+      "outFiles": [
+        "${workspaceFolder}/backend/examDocument/dist/**/*.js"
+      ],
+      "envFile": "${workspaceFolder}/backend/examDocument/.env",
+      "console": "integratedTerminal",
+      "runtimeArgs": [
+        "--nolazy",
+        "-r",
+        "ts-node/register",
+        "-r",
+        "tsconfig-paths/register"
+      ],
+      "outputCapture": "std",
+      "sourceMaps": true,
+      "cwd": "${workspaceRoot}"
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Debug User Service",
+      "skipFiles": [
+        "<node_internals>/**"
+      ],
+      "program": "${workspaceFolder}/backend/user/src/main.ts",
+      "outFiles": [
+        "${workspaceFolder}/backend/user/dist/**/*.js"
+      ],
+      "envFile": "${workspaceFolder}/backend/user/.env",
+      "console": "integratedTerminal",
+      "runtimeArgs": [
+        "--nolazy",
+        "-r",
+        "ts-node/register",
+        "-r",
+        "tsconfig-paths/register"
+      ],
+      "outputCapture": "std",
+      "sourceMaps": true,
+      "cwd": "${workspaceRoot}"
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Debug Media Service",
+      "skipFiles": [
+        "<node_internals>/**"
+      ],
+      "program": "${workspaceFolder}/backend/media/src/main.ts",
+      "outFiles": [
+        "${workspaceFolder}/backend/media/dist/**/*.js"
+      ],
+      "envFile": "${workspaceFolder}/backend/media/.env",
+      "console": "integratedTerminal",
+      "runtimeArgs": [
+        "--nolazy",
+        "-r",
+        "ts-node/register",
+        "-r",
+        "tsconfig-paths/register"
+      ],
+      "outputCapture": "std",
+      "sourceMaps": true,
+      "cwd": "${workspaceRoot}"
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Debug Document Service",
+      "skipFiles": [
+        "<node_internals>/**"
+      ],
+      "program": "${workspaceFolder}/backend/document/src/main.ts",
+      "outFiles": [
+        "${workspaceFolder}/backend/document/dist/**/*.js"
+      ],
+      "envFile": "${workspaceFolder}/backend/document/.env",
+      "console": "externalTerminal",
+      "runtimeArgs": [
+        "--nolazy",
+        "-r",
+        "ts-node/register",
+        "-r",
+        "tsconfig-paths/register"
+      ],
+      "outputCapture": "std",
+      "sourceMaps": true,
+      "cwd": "${workspaceRoot}"
+    }
+  ]
+}

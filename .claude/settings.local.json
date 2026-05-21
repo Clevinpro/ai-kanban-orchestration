@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find:*)",
+      "WebSearch",
+      "WebFetch(domain:addyosmani.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:medium.com)",
+      "WebFetch(domain:pub.spillwave.com)",
+      "WebFetch(domain:www.epam.com)"
+    ]
+  },
+  "autoUpdates": false
+}

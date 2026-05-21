@@ -1,0 +1,34 @@
+{
+    // Snippet that allow to write a console log where to insert variable name and string comment at the same time.
+    "log": {
+        "prefix": [
+            "log"
+        ],
+        "body": [
+            "console.log($0, '$0')"
+        ],
+        "description": "log"
+    },
+    // Snippet that allow to write an entire typescript function component.
+    "rtfc": {
+        "prefix": ["rtfc", "typescript-functional-component"],
+        "body": [
+          "import React from \"react\"",
+          "\ninterface ${TM_FILENAME_BASE}Props {\n\n}",
+          "\nconst $TM_FILENAME_BASE: React.FC<${TM_FILENAME_BASE}Props> = ({  }) => {\n\treturn <></>;\n};",
+          "\nexport default $TM_FILENAME_BASE;",
+        ]
+      },
+    "fetch":{
+      "prefix": ["fetch"],
+      "body":[
+        "\nconst {response, isLoading, isError} = useFetch<${1:TypeData}>(${2:fetchConfig})"
+      ]
+    },
+    "fetchstore":{
+      "prefix": ["fetchstore"],
+      "body":[
+        "\nconst {response, isLoading, isError, executeRequest, executeRequestPromise} =\n\tuseFetch<${1:TypeData}>(${2:fetchConfig}, ${3:store?}, ${4:fnSetResponse?})"
+      ]
+    }
+}

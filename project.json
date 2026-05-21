@@ -1,0 +1,19 @@
+{
+  "name": "workspace",
+  "$schema": "./node_modules/nx/schemas/project-schema.json",
+  "projectType": "application",
+  "sourceRoot": ".",
+  "targets": {
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "parallel": true,
+        "cwd": "{workspaceRoot}",
+        "commands": [
+          "cd ai-platform && npx nx run-many --target=lint",
+          "cd ai-platform-fe && npx nx run-many --target=lint"
+        ]
+      }
+    }
+  }
+}

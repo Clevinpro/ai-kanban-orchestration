@@ -1,0 +1,3 @@
+# Nested Nx workspaces use their own nx.json; root only orchestrates lint.
+ai-platform
+ai-platform-fe

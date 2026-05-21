@@ -1,0 +1,9 @@
+---
+description: Agent Skills and project skill docs must be written in English.
+alwaysApply: true
+---
+
+# Skills language
+
+- All **Cursor Agent Skills** under any `.cursor/skills/**/SKILL.md` in this workspace must be written in **English** (titles, body, examples, checklists).
+- When editing or creating skills, translate non-English content to English; keep code paths, package names, and imports unchanged.
