@@ -31,7 +31,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Success Criteria** (what must be TRUE):
 
   1. A TASK-XX.md file written by hand with valid YAML frontmatter (id, title, status, priority, repo, epic, complexity, created-at, updated-at) is accepted without errors by any downstream tool
-  2. Writing an invalid status transition to a task file's frontmatter is blocked by the PostToolUse hook
+  2. Writing an invalid status transition to a task file's frontmatter is blocked by the PreToolUse hook
   3. The root CLAUDE.md loads without triggering BE or FE-specific conventions in a neutral context
   4. Opening `ai-platform/` in Claude Code surfaces only NestJS/BE rules; opening `ai-platform-fe/` surfaces only React/FE rules
   5. TeamLead agent definition acknowledges the max ~10 min / fresh-context-window constraint when sizing task breakdowns

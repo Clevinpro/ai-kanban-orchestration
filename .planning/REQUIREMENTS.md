@@ -10,8 +10,8 @@
 - [x] **FOUND-01**: Task file schema defined — `.planning/work/TASK-XX.md` with YAML frontmatter fields: `id`, `title`, `status`, `priority`, `repo` (be|fe|both), `epic`, `complexity` (1-10), `created-at`, `updated-at`
 - [x] **FOUND-02**: Six-state status lifecycle enforced: `readyForDevelop → inProgress → inReview → inTesting → forTeamLeadCheck → done`
 - [x] **FOUND-03**: Root CLAUDE.md constitution created — cross-repo rules only, under 200 lines, references sub-repo CLAUDE.md files
-- [ ] **FOUND-04**: `ai-platform/CLAUDE.md` created — NestJS/BE-specific context and path restrictions
-- [ ] **FOUND-05**: `ai-platform-fe/CLAUDE.md` created — React/FE-specific context and path restrictions
+- [x] **FOUND-04**: `ai-platform/CLAUDE.md` created — NestJS/BE-specific context and path restrictions
+- [x] **FOUND-05**: `ai-platform-fe/CLAUDE.md` created — React/FE-specific context and path restrictions
 - [x] **FOUND-06**: Each task scoped to max ~10 minutes of execution time — TeamLead enforces atomic, focused task size
 - [x] **FOUND-07**: Each task executes in a fresh context window — no accumulated state between tasks
 
@@ -81,8 +81,8 @@
 | FOUND-01 | Phase 1 | Complete |
 | FOUND-02 | Phase 1 | Complete |
 | FOUND-03 | Phase 1 | Complete |
-| FOUND-04 | Phase 1 | Pending |
-| FOUND-05 | Phase 1 | Pending |
+| FOUND-04 | Phase 1 | Complete |
+| FOUND-05 | Phase 1 | Complete |
 | FOUND-06 | Phase 1 | Complete |
 | FOUND-07 | Phase 1 | Complete |
 | TL-01 | Phase 2 | Pending |
