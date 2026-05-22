@@ -26,7 +26,7 @@ process.stdin.on('end', () => {
     const data = JSON.parse(input);
     const { tool_name, tool_input } = data;
 
-    // 1. Guard: only Watch Write and Edit tool calls
+    // 1. Guard: only handle Write and Edit tool calls
     if (tool_name !== 'Write' && tool_name !== 'Edit') process.exit(0);
 
     // 2. Path filter: only guard task files in .planning/work/
@@ -82,18 +82,26 @@ process.stdin.on('end', () => {
       deny('repo: both is not allowed. Split into separate be and fe tasks.');
     }
 
-    // 8. ALLOW path — inject updated-at into the authoritative final content
+    // 8. ALLOW path — inject updated-at, keyed by tool_name
     const now = new Date().toISOString();
-    const updatedContent = finalContent.replace(/(updated-at:\s*)([^\n]+)/, `$1${now}`);
+    let modifiedInput;
+    if (tool_name === 'Write') {
+      // Write tool: modifiedInput.content is the complete file content to write
+      const updatedContent = (tool_input.content || '').replace(/(updated-at:\s*)([^\n]+)/, `$1${now}`);
+      modifiedInput = { content: updatedContent };
+    } else {
+      // Edit tool: modifiedInput.new_string is the replacement snippet (not full file)
+      // The timestamp regex is applied to the new_string portion being substituted
+      const updatedNewString = (tool_input.new_string || '').replace(/(updated-at:\s*)([^\n]+)/, `$1${now}`);
+      modifiedInput = { new_string: updatedNewString };
+    }
 
     const output = {
       hookSpecificOutput: {
         hookEventName: 'PreToolUse',
         permissionDecision: 'allow',
       },
-      modifiedInput: {
-        content: updatedContent,
-      },
+      modifiedInput,
     };
 
     process.stdout.write(JSON.stringify(output));
