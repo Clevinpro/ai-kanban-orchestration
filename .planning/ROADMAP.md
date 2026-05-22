@@ -36,7 +36,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. Opening `ai-platform/` in Claude Code surfaces only NestJS/BE rules; opening `ai-platform-fe/` surfaces only React/FE rules
   5. TeamLead agent definition acknowledges the max ~10 min / fresh-context-window constraint when sizing task breakdowns
 
-**Plans**: 4 plans
+**Plans**: 5 plans
 
 Plans:
 **Wave 1**
@@ -48,6 +48,10 @@ Plans:
 
 - [x] 01-03-PLAN.md — BE isolation: ai-platform/CLAUDE.md rewrite (allowlist-first) and be-conventions SKILL.md
 - [x] 01-04-PLAN.md — FE isolation: ai-platform-fe/CLAUDE.md creation (allowlist-first) and fe-conventions SKILL.md
+
+**Gap Closure**
+
+- [x] 01-05-PLAN.md — CR-01 fix (Edit allow path returns modifiedInput.new_string) + documentation gap closure (FOUND-04/05, ROADMAP SC-2 label)
 
 ### Phase 2: TeamLead Skills
 
@@ -132,7 +136,7 @@ Phases execute in numeric order. Phases 3 and 5 can begin as soon as Phase 1 is 
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation | 4/4 | Complete | 2026-05-21 |
+| 1. Foundation | 5/5 | Complete | 2026-05-22 |
 | 2. TeamLead Skills | 0/TBD | Not started | - |
 | 3. Sub-Agents | 0/TBD | Not started | - |
 | 4. Pipeline Integration | 0/TBD | Not started | - |
