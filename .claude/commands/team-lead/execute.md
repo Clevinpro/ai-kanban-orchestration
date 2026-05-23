@@ -5,6 +5,7 @@ argument-hint: "<TASK-ID>"
 allowed-tools:
   - Read
   - Write
+  - Edit
   - Bash
   - Glob
   - Grep
