@@ -17,10 +17,10 @@
 
 ### TeamLead Skills
 
-- [ ] **TL-01**: `/team-lead:plan` skill reads SPEC.md + `.planning/codebase/`, generates TASK-XX.md files with complexity scoring, outputs list for human review before any execution
-- [ ] **TL-02**: `/team-lead:execute TASK-ID` skill runs full automated pipeline per task: Developer → CodeReview → QA → TeamLeadCheck → Done
-- [ ] **TL-03**: SPEC.md format defined — single file per epic containing both product requirements (user stories, AC) and technical design (API contracts, DB schema, architecture decisions)
-- [ ] **TL-04**: TeamLead assigns complexity score 1-10 per generated task and surfaces it in the plan review output
+- [x] **TL-01**: `/team-lead:plan` skill reads SPEC.md + `.planning/codebase/`, generates TASK-XX.md files with complexity scoring, outputs list for human review before any execution
+- [x] **TL-02**: `/team-lead:execute TASK-ID` skill runs full automated pipeline per task: Developer → CodeReview → QA → TeamLeadCheck → Done
+- [x] **TL-03**: SPEC.md format defined — single file per epic containing both product requirements (user stories, AC) and technical design (API contracts, DB schema, architecture decisions)
+- [x] **TL-04**: TeamLead assigns complexity score 1-10 per generated task and surfaces it in the plan review output
 
 ### Sub-Agents
 
@@ -85,10 +85,10 @@
 | FOUND-05 | Phase 1 | Complete |
 | FOUND-06 | Phase 1 | Complete |
 | FOUND-07 | Phase 1 | Complete |
-| TL-01 | Phase 2 | Pending |
-| TL-02 | Phase 2 | Pending |
-| TL-03 | Phase 2 | Pending |
-| TL-04 | Phase 2 | Pending |
+| TL-01 | Phase 2 | Complete |
+| TL-02 | Phase 2 | Complete |
+| TL-03 | Phase 2 | Complete |
+| TL-04 | Phase 2 | Complete |
 | PIPE-04 | Phase 2 | Complete |
 | PIPE-05 | Phase 2 | Complete |
 | AGENT-01 | Phase 3 | Pending |
@@ -113,4 +113,4 @@
 
 ---
 *Requirements defined: 2026-05-20*
-*Last updated: 2026-05-23 after Phase 2 Plan 01 — PIPE-04 marked complete*
+*Last updated: 2026-05-23 after Phase 2 complete — TL-01, TL-02, TL-03, TL-04 marked complete*

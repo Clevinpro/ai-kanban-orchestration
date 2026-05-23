@@ -14,7 +14,7 @@ This roadmap builds a Claude Code multi-agent development automation system on t
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Foundation** - Task schema, CLAUDE.md layering, and context isolation rules that every phase depends on
-- [ ] **Phase 2: TeamLead Skills** - `/team-lead:plan` and `/team-lead:execute` slash commands with safety guards
+- [x] **Phase 2: TeamLead Skills** - `/team-lead:plan` and `/team-lead:execute` slash commands with safety guards
 - [ ] **Phase 3: Sub-Agents** - Six agent definitions (be-developer, fe-developer, code-reviewer, qa-be, qa-fe, team-lead-check)
 - [ ] **Phase 4: Pipeline Integration** - End-to-end sequential orchestration with rejection loops and final check gate
 - [ ] **Phase 5: Kanban Server** - Standalone Express + chokidar + SSE server that reads task files and exposes stop/commit
