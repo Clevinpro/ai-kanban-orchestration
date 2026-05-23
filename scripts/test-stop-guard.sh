@@ -5,7 +5,11 @@
 set -e
 
 HOOK="$(dirname "$0")/../.claude/hooks/stop-guard.js"
-NODE="/Users/tarasbannyi/.nvm/versions/node/v22.18.0/bin/node"
+NODE="$(command -v node)"
+if [ -z "$NODE" ]; then
+  echo "ERROR: node not found in PATH" >&2
+  exit 1
+fi
 
 # Test 1: stop_hook_active = true → must exit 0 (allow stop, break loop)
 PAYLOAD='{"session_id":"test","hook_event_name":"Stop","stop_hook_active":true,"cwd":".","transcript_path":"/tmp/test.jsonl"}'
