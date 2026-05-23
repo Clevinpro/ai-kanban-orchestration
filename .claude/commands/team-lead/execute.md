@@ -57,8 +57,18 @@ Read the task file located by Glob. Extract from the frontmatter:
   Warning: Task <id> has status: <current-status> (expected: readyForDevelop).
   Continue from the current stage? [y/N]
   ```
-  - If the user replies `y` or `Y`: proceed to the stage that corresponds to the current status.
+  - If the user replies `y` or `Y`: proceed to the stage that corresponds to the current status using the mapping below.
   - Otherwise: stop.
+
+  **Status → Resume at stage:**
+
+  | Current status | Resume at stage |
+  |---------------|----------------|
+  | `inProgress` | CodeReview |
+  | `inReview` | QA |
+  | `inTesting` | TeamLeadCheck |
+  | `forTeamLeadCheck` | Done |
+  | `done` | (already complete — print "Task already complete" and stop) |
 
 ---
 
