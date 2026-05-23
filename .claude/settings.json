@@ -58,6 +58,17 @@
         ]
       }
     ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"/Users/tarasbannyi/.nvm/versions/node/v22.18.0/bin/node\" \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/stop-guard.js",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "Write|Edit",
