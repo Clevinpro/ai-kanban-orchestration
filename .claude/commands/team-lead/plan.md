@@ -105,7 +105,7 @@ Take the first sentence (or first 5–8 words), then:
 
 **Example:** `"Build a user authentication system"` → `user-authentication-system`
 
-**Fallback:** If `## Goal` is empty or absent, use the SPEC.md filename (without path or `.md` extension), converted to kebab-case using the same rules.
+**Fallback:** If `## Goal` is empty or absent, use the parent directory name of the SPEC.md path, converted to kebab-case using the same rules. Example: `my-auth-epic/SPEC.md` → slug `my-auth-epic`.
 
 The derived slug is used as the directory name: `.planning/work/<slug>/`
 
