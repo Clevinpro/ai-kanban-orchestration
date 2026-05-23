@@ -67,7 +67,14 @@ Plans:
   4. Running `/team-lead:execute TASK-ID` launches the Developer → CodeReview → QA → TeamLeadCheck pipeline without manual steps
   5. Every Stop hook checks `stop_hook_active` and exits immediately, confirmed by a forced-exit test
 
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+**Wave 1** *(all plans parallel — no shared files)*
+
+- [ ] 02-01-PLAN.md — Stop hook guard: stop-guard.js + settings.json registration + scripts/test-stop-guard.sh (PIPE-04)
+- [ ] 02-02-PLAN.md — Full plan.md command: SPEC.md validation, task generation, review table, confirm gate (TL-01, TL-03, TL-04)
+- [ ] 02-03-PLAN.md — Full execute.md command: pipeline orchestration stubs + PIPE-05 verification (TL-02, PIPE-05)
 
 ### Phase 3: Sub-Agents
 
@@ -136,8 +143,8 @@ Phases execute in numeric order. Phases 3 and 5 can begin as soon as Phase 1 is 
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation | 5/5 | Complete | 2026-05-22 |
-| 2. TeamLead Skills | 0/TBD | Not started | - |
+| 1. Foundation | 5/5 | Complete    | 2026-05-22 |
+| 2. TeamLead Skills | 0/3 | Not started | - |
 | 3. Sub-Agents | 0/TBD | Not started | - |
 | 4. Pipeline Integration | 0/TBD | Not started | - |
 | 5. Kanban Server | 0/TBD | Not started | - |
