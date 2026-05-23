@@ -74,7 +74,7 @@ Plans:
 
 - [x] 02-01-PLAN.md — Stop hook guard: stop-guard.js + settings.json registration + scripts/test-stop-guard.sh (PIPE-04)
 - [x] 02-02-PLAN.md — Full plan.md command: SPEC.md validation, task generation, review table, confirm gate (TL-01, TL-03, TL-04)
-- [ ] 02-03-PLAN.md — Full execute.md command: pipeline orchestration stubs + PIPE-05 verification (TL-02, PIPE-05)
+- [x] 02-03-PLAN.md — Full execute.md command: pipeline orchestration stubs + PIPE-05 verification (TL-02, PIPE-05)
 
 ### Phase 3: Sub-Agents
 

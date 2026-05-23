@@ -37,7 +37,7 @@
 - [ ] **PIPE-02**: Rejection loop — QA failure sends task back to Developer with failure evidence appended to task file body; loop repeats until pass or manual intervention
 - [ ] **PIPE-03**: TeamLeadCheck gate — final verification against SPEC.md before `done`; can reject back to developer
 - [x] **PIPE-04**: Stop hook guard — every Stop hook checks `stop_hook_active` and exits immediately to prevent infinite loop
-- [ ] **PIPE-05**: Status transition guard — PostToolUse hook on `.planning/work/*.md` validates only allowed transitions proceed
+- [x] **PIPE-05**: Status transition guard — PostToolUse hook on `.planning/work/*.md` validates only allowed transitions proceed
 
 ### Kanban UI
 
@@ -90,7 +90,7 @@
 | TL-03 | Phase 2 | Pending |
 | TL-04 | Phase 2 | Pending |
 | PIPE-04 | Phase 2 | Complete |
-| PIPE-05 | Phase 2 | Pending |
+| PIPE-05 | Phase 2 | Complete |
 | AGENT-01 | Phase 3 | Pending |
 | AGENT-02 | Phase 3 | Pending |
 | AGENT-03 | Phase 3 | Pending |
