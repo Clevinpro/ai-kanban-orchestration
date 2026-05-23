@@ -73,7 +73,7 @@ Plans:
 **Wave 1** *(all plans parallel — no shared files)*
 
 - [x] 02-01-PLAN.md — Stop hook guard: stop-guard.js + settings.json registration + scripts/test-stop-guard.sh (PIPE-04)
-- [ ] 02-02-PLAN.md — Full plan.md command: SPEC.md validation, task generation, review table, confirm gate (TL-01, TL-03, TL-04)
+- [x] 02-02-PLAN.md — Full plan.md command: SPEC.md validation, task generation, review table, confirm gate (TL-01, TL-03, TL-04)
 - [ ] 02-03-PLAN.md — Full execute.md command: pipeline orchestration stubs + PIPE-05 verification (TL-02, PIPE-05)
 
 ### Phase 3: Sub-Agents
@@ -144,7 +144,7 @@ Phases execute in numeric order. Phases 3 and 5 can begin as soon as Phase 1 is 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation | 5/5 | Complete    | 2026-05-22 |
-| 2. TeamLead Skills | 1/3 | In progress | - |
+| 2. TeamLead Skills | 2/3 | In progress | - |
 | 3. Sub-Agents | 0/TBD | Not started | - |
 | 4. Pipeline Integration | 0/TBD | Not started | - |
 | 5. Kanban Server | 0/TBD | Not started | - |
