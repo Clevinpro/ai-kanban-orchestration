@@ -90,7 +90,14 @@ Plans:
   4. `team-lead-check` reads the original SPEC.md plus full task file history and either marks the task `done` or rejects back to developer with a reason
   5. Every agent definition pads the `tools:` array with Glob at position 1 and Grep at the last position (bug #60237 mitigation)
 
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+**Wave 1** *(all plans parallel — no shared files)*
+
+- [ ] 03-01-PLAN.md — Developer agents: be-developer.md and fe-developer.md (AGENT-01, AGENT-02)
+- [ ] 03-02-PLAN.md — Review and QA agents: code-reviewer.md, qa-be.md, qa-fe.md (AGENT-03, AGENT-04, AGENT-05)
+- [ ] 03-03-PLAN.md — TeamLead Check agent + spec: field schema extension + plan.md update (AGENT-06)
 
 ### Phase 4: Pipeline Integration
 
@@ -145,7 +152,7 @@ Phases execute in numeric order. Phases 3 and 5 can begin as soon as Phase 1 is 
 |-------|----------------|--------|-----------|
 | 1. Foundation | 5/5 | Complete    | 2026-05-22 |
 | 2. TeamLead Skills | 2/3 | In progress | - |
-| 3. Sub-Agents | 0/TBD | Not started | - |
+| 3. Sub-Agents | 0/3 | Not started | - |
 | 4. Pipeline Integration | 0/TBD | Not started | - |
 | 5. Kanban Server | 0/TBD | Not started | - |
 | 6. Kanban UI | 0/TBD | Not started | - |
