@@ -155,6 +155,7 @@ epic: <slug>
 complexity: N
 created-at: <current ISO8601 timestamp>
 updated-at: <same as created-at>
+spec: <path-to-SPEC.md>
 ---
 ```
 

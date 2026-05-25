@@ -1,0 +1,66 @@
+# .planning/task-schema.yaml
+# Machine-readable schema for TASK-XXX.md frontmatter
+# Used as reference by agents and humans; the PreToolUse hook hardcodes the same rules.
+
+version: 1
+task_id_format: "TASK-\\d{3}"   # e.g. TASK-001 (three-digit zero-padded)
+task_file_pattern: ".planning/work/<epic-name>/TASK-XXX.md"
+
+fields:
+  id:
+    type: string
+    pattern: "TASK-\\d{3}"
+    required: true
+    example: "TASK-001"
+  title:
+    type: string
+    required: true
+  status:
+    type: enum
+    values: [readyForDevelop, inProgress, inReview, inTesting, forTeamLeadCheck, done]
+    required: true
+    initial: readyForDevelop
+  priority:
+    type: enum
+    values: [low, medium, high, critical]
+    required: true
+  repo:
+    type: enum
+    values: [be, fe]   # 'both' is explicitly DISALLOWED — split full-stack work into separate tasks
+    required: true
+  epic:
+    type: string
+    required: true
+    note: "Must match the parent directory name under .planning/work/"
+  complexity:
+    type: integer
+    min: 1
+    max: 10
+    required: true
+  created-at:
+    type: string
+    format: ISO8601
+    required: true
+  updated-at:
+    type: string
+    format: ISO8601
+    required: true
+    note: "Auto-updated by task-state-guard.js on every valid write"
+  spec:
+    type: string
+    required: false
+    note: "Path to the SPEC.md file for this task's epic. Populated by /team-lead:plan. Used by team-lead-check agent to locate acceptance criteria."
+
+lifecycle:
+  readyForDevelop:
+    allowed_next: [inProgress]
+  inProgress:
+    allowed_next: [inReview, readyForDevelop]
+  inReview:
+    allowed_next: [inTesting, inProgress]
+  inTesting:
+    allowed_next: [forTeamLeadCheck, inProgress]
+  forTeamLeadCheck:
+    allowed_next: [done, inProgress]
+  done:
+    allowed_next: []
