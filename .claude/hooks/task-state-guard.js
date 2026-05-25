@@ -66,6 +66,20 @@ process.stdin.on('end', () => {
       if (!allowed.includes(newStatus)) {
         deny(`Invalid status transition: ${currentStatus} -> ${newStatus}. Allowed from ${currentStatus}: [${allowed.join(', ') || 'none'}]`);
       }
+
+      // Annotation-gated reverse transitions (D-06) — rejection-only gating
+      if (currentStatus === 'inReview' && newStatus === 'inProgress') {
+        // Only allow if QA Results block has Status: FAIL
+        if (!diskContent.match(/## QA Results[\s\S]*?Status: FAIL/)) {
+          deny('Status regression inReview → inProgress requires ## QA Results block with Status: FAIL');
+        }
+      }
+      if (currentStatus === 'forTeamLeadCheck' && newStatus === 'inProgress') {
+        // Only allow if TeamLead Check block has Status: REJECTED
+        if (!diskContent.match(/## TeamLead Check[\s\S]*?Status: REJECTED/)) {
+          deny('Status regression forTeamLeadCheck → inProgress requires ## TeamLead Check block with Status: REJECTED');
+        }
+      }
     }
 
     // 7. Repo check — enforced on the reconstructed final content
