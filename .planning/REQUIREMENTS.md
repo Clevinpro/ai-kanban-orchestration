@@ -24,8 +24,8 @@
 
 ### Sub-Agents
 
-- [ ] **AGENT-01**: `be-developer` agent defined in root `.claude/agents/be-developer.md` — restricted to `ai-platform/` via system prompt, returns one-line receipt, `tools:` array padded with Glob/Grep
-- [ ] **AGENT-02**: `fe-developer` agent defined in root `.claude/agents/fe-developer.md` — restricted to `ai-platform-fe/` via system prompt, returns one-line receipt, `tools:` array padded with Glob/Grep
+- [x] **AGENT-01**: `be-developer` agent defined in root `.claude/agents/be-developer.md` — restricted to `ai-platform/` via system prompt, returns one-line receipt, `tools:` array padded with Glob/Grep
+- [x] **AGENT-02**: `fe-developer` agent defined in root `.claude/agents/fe-developer.md` — restricted to `ai-platform-fe/` via system prompt, returns one-line receipt, `tools:` array padded with Glob/Grep
 - [ ] **AGENT-03**: `code-reviewer` agent defined — `disallowedTools: Write, Edit, Bash`, appends APPROVED/CHANGES_REQUESTED block to task file body, returns one-line receipt
 - [ ] **AGENT-04**: `qa-be` agent — runs `nx test` for `ai-platform/` via Bash, records pass/fail in task file, triggers rejection loop to developer on failure
 - [ ] **AGENT-05**: `qa-fe` agent — runs `nx test` for `ai-platform-fe/` via Bash, records pass/fail in task file, triggers rejection loop to developer on failure
@@ -91,8 +91,8 @@
 | TL-04 | Phase 2 | Complete |
 | PIPE-04 | Phase 2 | Complete |
 | PIPE-05 | Phase 2 | Complete |
-| AGENT-01 | Phase 3 | Pending |
-| AGENT-02 | Phase 3 | Pending |
+| AGENT-01 | Phase 3 | Complete |
+| AGENT-02 | Phase 3 | Complete |
 | AGENT-03 | Phase 3 | Pending |
 | AGENT-04 | Phase 3 | Pending |
 | AGENT-05 | Phase 3 | Pending |
