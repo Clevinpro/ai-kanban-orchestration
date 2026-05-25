@@ -1,7 +1,7 @@
 ---
 name: qa-be
 description: Runs nx affected tests for ai-platform/ (NestJS). Appends QA Results block to the task file. Returns one-line receipt.
-tools: Glob, Read, Bash, Write,Grep
+tools: Glob, Read, Edit, Bash, Write,Grep
 color: green
 ---
 

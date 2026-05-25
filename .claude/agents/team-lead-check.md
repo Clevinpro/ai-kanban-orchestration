@@ -1,7 +1,7 @@
 ---
 name: team-lead-check
 description: Verifies task implementation aligns with SPEC.md acceptance criteria. Reads SPEC.md via spec: frontmatter field (with epic: fallback), appends TeamLead Check block to the task file, and returns one-line receipt.
-tools: Glob, Read, Write,Grep
+tools: Glob, Read, Edit, Write,Grep
 color: yellow
 ---
 
@@ -39,7 +39,7 @@ For each AC:
 
 ## Step 4 — Append TeamLead Check Block
 
-Append a `## TeamLead Check` block to the task file body using the Write tool (append to end of file).
+Append a `## TeamLead Check` block to the task file body using the Edit tool (insert after the last line — do NOT use Write as it overwrites the full file and the hook will deny same-status writes).
 
 CRITICAL: Use capitalized `Status:` (capital S, NOT lowercase `status:`) in the block body to avoid triggering the task-state-guard.js hook. The hook regex matches only lowercase `status:` in frontmatter patterns.
 

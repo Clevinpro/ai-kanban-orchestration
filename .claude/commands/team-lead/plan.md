@@ -142,7 +142,7 @@ Reason carefully about the SPEC.md content. Derive a flat ordered list of tasks 
 
 For each task, prepare the full TASK-XXX.md file content:
 
-**Frontmatter fields (all 9 required):**
+**Frontmatter fields (all 10 required):**
 
 ```yaml
 ---
@@ -168,6 +168,7 @@ Field rules:
 - `epic`: must equal `<slug>` (the directory name derived in STEP 2)
 - `complexity`: integer 1–10 where 1 = trivial config change, 10 = most architecturally complex
 - `created-at` and `updated-at`: current ISO8601 timestamp (same value on creation)
+- `spec`: path to the SPEC.md file passed as `$ARGUMENTS` to this invocation (e.g., `.planning/work/<slug>/SPEC.md`); used by team-lead-check agent to locate acceptance criteria
 
 **Body sections:**
 
