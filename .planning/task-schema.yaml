@@ -58,9 +58,13 @@ lifecycle:
     allowed_next: [inReview, readyForDevelop]
   inReview:
     allowed_next: [inTesting, inProgress]
+    notes:
+      inProgress: "Rejection-only — requires ## QA Results block with Status: FAIL in task body (enforced by task-state-guard.js)"
   inTesting:
     allowed_next: [forTeamLeadCheck, inProgress]
   forTeamLeadCheck:
     allowed_next: [done, inProgress]
+    notes:
+      inProgress: "Rejection-only — requires ## TeamLead Check block with Status: REJECTED in task body (enforced by task-state-guard.js)"
   done:
     allowed_next: []
