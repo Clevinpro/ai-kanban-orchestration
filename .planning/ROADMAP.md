@@ -134,7 +134,17 @@ Plans:
   2. When a task file's frontmatter is updated on disk, the server pushes the change to connected SSE clients within one second
   3. A user can call the stop-and-commit endpoint for a running task and the current code changes are committed to a new branch (no PR created)
 
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+**Wave 1** *(Plans 01 and 02 parallel — no shared files)*
+
+- [ ] 05-01-PLAN.md — stopped transition guard: scripts/test-kanban-guard.sh + task-state-guard.js VALID_TRANSITIONS extension + task-schema.yaml stopped status (KANBAN-05)
+- [ ] 05-02-PLAN.md — pipeline stopped check: execute.md stopped-check blocks at all four stage gates (KANBAN-05)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 05-03-PLAN.md — kanban-server: kanban-server/package.json + kanban-server/index.js (Express SSE + chokidar + stop-and-commit endpoint) (KANBAN-05)
 
 ### Phase 6: Kanban UI
 
@@ -163,5 +173,5 @@ Phases execute in numeric order. Phases 3 and 5 can begin as soon as Phase 1 is 
 | 2. TeamLead Skills | 3/3 | Complete | 2026-05-25 |
 | 3. Sub-Agents | 3/3 | Complete | 2026-05-25 |
 | 4. Pipeline Integration | 2/2 | Complete   | 2026-05-26 |
-| 5. Kanban Server | 0/TBD | Not started | - |
+| 5. Kanban Server | 0/3 | In progress | - |
 | 6. Kanban UI | 0/TBD | Not started | - |
