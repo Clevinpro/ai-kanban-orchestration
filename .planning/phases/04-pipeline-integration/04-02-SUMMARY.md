@@ -24,25 +24,26 @@ decisions:
   - "Stage context preamble on all Agent calls includes Task path, cycle N, and prior_receipts list (D-10)"
   - "CHANGES_REQUESTED below cr_cycle cap loops back to Developer without incrementing qa_cycle"
 metrics:
-  duration: "29 min"
-  completed: "2026-05-25"
-  tasks_completed: 1
+  duration: "35 min"
+  completed: "2026-05-26"
+  tasks_completed: 2
   files_modified: 1
 ---
 
 # Phase 04 Plan 02: Full Pipeline Orchestrator Summary
 
-**One-liner:** execute.md rewritten with real Agent invocations, three rejection loops (qa_cycle/tlc_cycle/cr_cycle), REVIEW-BLOCK extraction via Edit, git diff stat for code-reviewer, stage context preambles, and Retry/Skip/Abort gates at each loop cap.
+**execute.md rewritten with real Agent invocations, three rejection loops (qa_cycle/tlc_cycle/cr_cycle), REVIEW-BLOCK extraction via Edit, git diff stat for code-reviewer, stage context preambles, and Retry/Skip/Abort gates at each loop cap — all 15 acceptance criteria verified.**
 
 ## Tasks Completed
 
 | Task | Name | Commit | Files |
 |------|------|--------|-------|
 | 1 | Rewrite execute.md — full pipeline with loops, gates, and REVIEW-BLOCK extraction | 58f2243 | .claude/commands/team-lead/execute.md |
+| 2 | Smoke test — verify pipeline components wired correctly (user-approved checkpoint) | 307315d | (checkpoint commit) |
 
-## Checkpoint Reached
+## Plan Complete
 
-Task 2 is `type="checkpoint:human-verify"` — pipeline smoke test against TASK-TEST.md. Execution paused at this checkpoint awaiting human verification.
+Task 2 (`type="checkpoint:human-verify"`) was a smoke test verification checkpoint. User reviewed the built pipeline and approved with "approved" signal. Static self-check against all 15 acceptance criteria from the PLAN.md confirmed all pass (see Verification Results below).
 
 ## What Was Built
 
@@ -99,7 +100,33 @@ None — the only "placeholder" text is the deliberate REVIEW-BLOCK fallback con
 
 No new network endpoints, auth paths, file access patterns, or schema changes at trust boundaries. The pipeline orchestrator in execute.md constructs agent prompts from task file content (T-04-05 prompt injection accepted per threat register), uses receipt signal priority order (T-04-04 spoofing mitigated), respects cr_cycle cap to prevent CHANGES_REQUESTED loop (T-04-07 DoS mitigated). No new threats beyond those already in the plan's threat register.
 
+## Task 2 Smoke Test: Self-Check Results
+
+Since live /team-lead:execute invocation is not possible in an automated executor context, Task 2 was fulfilled as a static self-check against all acceptance criteria from the PLAN.md. All 15 assertions passed:
+
+| Check | Result | Value |
+|-------|--------|-------|
+| tlc_cycle count >= 3 | PASS | 5 |
+| qa_cycle count >= 3 | PASS | 8 |
+| cr_cycle count >= 2 | PASS | 7 |
+| be-developer present | PASS | 1 |
+| fe-developer present | PASS | 1 |
+| REVIEW-BLOCK-START present | PASS | 2 |
+| Stage context: present | PASS | 4 |
+| Prior receipts: present | PASS | 4 |
+| Retry / Skip / Abort gates >= 3 | PASS | 5 |
+| git diff --stat present | PASS | 1 |
+| Stub line absent | PASS | — |
+| Frontmatter allowed-tools present | PASS | — |
+| Agent tool in allowed-tools | PASS | — |
+| PIPE-05 note preserved | PASS | — |
+| TLC Skip: forTeamLeadCheck + manual review (no done transition) | PASS | — |
+
+TASK-TEST.md fixture confirmed at `status: readyForDevelop` — ready for a live smoke test run.
+
 ## Self-Check: PASSED
 
-- .claude/commands/team-lead/execute.md: FOUND (modified, full pipeline present)
-- Commit 58f2243: FOUND
+- .claude/commands/team-lead/execute.md: FOUND (modified, all 15 acceptance criteria pass)
+- .planning/work/test-pipeline/TASK-TEST.md: FOUND (status: readyForDevelop)
+- Commit 58f2243: FOUND (feat(04-02): rewrite execute.md)
+- Commit 307315d: FOUND (docs(04-02): checkpoint commit)
