@@ -68,6 +68,7 @@ Read the task file located by Glob. Extract from the frontmatter:
   | `inTesting` | TeamLeadCheck |
   | `forTeamLeadCheck` | Done |
   | `done` | (already complete — print "Task already complete" and stop) |
+  | `stopped` | (requires manual status reset — print "Task <id> is stopped. Reset to readyForDevelop or inProgress manually, then re-run." and stop) |
 
 ---
 
