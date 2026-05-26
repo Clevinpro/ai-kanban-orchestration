@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Foundation** - Task schema, CLAUDE.md layering, and context isolation rules that every phase depends on
 - [x] **Phase 2: TeamLead Skills** - `/team-lead:plan` and `/team-lead:execute` slash commands with safety guards
-- [ ] **Phase 3: Sub-Agents** - Six agent definitions (be-developer, fe-developer, code-reviewer, qa-be, qa-fe, team-lead-check)
+- [x] **Phase 3: Sub-Agents** - Six agent definitions (be-developer, fe-developer, code-reviewer, qa-be, qa-fe, team-lead-check) (completed 2026-05-26)
 - [x] **Phase 4: Pipeline Integration** - End-to-end sequential orchestration with rejection loops and final check gate (completed 2026-05-26)
 - [ ] **Phase 5: Kanban Server** - Standalone Express + chokidar + SSE server that reads task files and exposes stop/commit
 - [ ] **Phase 6: Kanban UI** - Vite + React board with six status columns, live SSE updates, and drag-and-drop
