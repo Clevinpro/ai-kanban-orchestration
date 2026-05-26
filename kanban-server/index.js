@@ -15,7 +15,10 @@ const yaml = require('js-yaml');
 const { execSync } = require('child_process');
 
 // D-10: port configured via PORT env var with fallback 6111
-const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 6111;
+// Guard against non-numeric values (e.g. PORT=abc) that parseInt returns NaN for,
+// which causes app.listen(NaN) to bind to a random OS-assigned port silently.
+const rawPort = parseInt(process.env.PORT, 10);
+const PORT = (!process.env.PORT || isNaN(rawPort)) ? 6111 : rawPort;
 
 // Task files live at .planning/work/<epic>/*.md (relative to workspace root)
 const WORK_DIR = path.resolve('.planning/work');
