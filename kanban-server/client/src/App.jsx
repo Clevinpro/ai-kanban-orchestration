@@ -12,20 +12,23 @@ const COLUMN_ORDER = [
 
 const initialState = Object.fromEntries(COLUMN_ORDER.map((col) => [col, []]));
 
+function taskUid(t) { return t.epic + '/' + t.id; }
+
 function boardReducer(state, action) {
   switch (action.type) {
     case 'SSE_UPDATE': {
       const { task } = action;
+      const uid = taskUid(task);
       if (task.deleted) {
         const next = { ...state };
         for (const col of COLUMN_ORDER) {
-          next[col] = next[col].filter((t) => t.id !== task.id);
+          next[col] = next[col].filter((t) => taskUid(t) !== uid);
         }
         return next;
       }
       const next = { ...state };
       for (const col of COLUMN_ORDER) {
-        next[col] = next[col].filter((t) => t.id !== task.id);
+        next[col] = next[col].filter((t) => taskUid(t) !== uid);
       }
       if (COLUMN_ORDER.includes(task.status)) {
         next[task.status] = [...(next[task.status] || []), task];
@@ -33,13 +36,13 @@ function boardReducer(state, action) {
       return next;
     }
     case 'DRAG_OPTIMISTIC': {
-      const { taskId, newStatus } = action;
+      const { taskUid: uid, newStatus } = action;
       const next = { ...state };
       let movedTask = null;
       for (const col of COLUMN_ORDER) {
-        const found = next[col].find((t) => t.id === taskId);
+        const found = next[col].find((t) => taskUid(t) === uid);
         if (found) movedTask = found;
-        next[col] = next[col].filter((t) => t.id !== taskId);
+        next[col] = next[col].filter((t) => taskUid(t) !== uid);
       }
       if (movedTask) {
         next[newStatus] = [...(next[newStatus] || []), { ...movedTask, status: newStatus }];
@@ -49,7 +52,7 @@ function boardReducer(state, action) {
     case 'DRAG_REVERT': {
       return boardReducer(state, {
         type: 'SSE_UPDATE',
-        task: { id: action.taskId, status: action.originalStatus },
+        task: { id: action.taskId, epic: action.taskEpic, status: action.originalStatus },
       });
     }
     default:

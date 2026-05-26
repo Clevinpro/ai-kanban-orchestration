@@ -262,11 +262,16 @@ const VALID_STATUSES = new Set([
 ]);
 
 // PATCH /tasks/:id/status — update task status via drag-and-drop (D-05, D-06)
-app.patch('/tasks/:id/status', (req, res) => {
+app.patch('/tasks/:epic/:id/status', (req, res) => {
   try {
-    const taskId = req.params.id;
+    const { epic, id: taskId } = req.params;
 
-    // T-06-01: validate taskId format — prevents path traversal (same as stop endpoint)
+    // T-06-01: validate epic name — no path traversal (only word chars and hyphens)
+    if (!/^[\w-]+$/.test(epic)) {
+      return res.status(400).json({ error: 'Invalid epic name.' });
+    }
+
+    // T-06-01: validate taskId format — prevents path traversal
     if (!/^TASK-\d{3}$/.test(taskId)) {
       return res.status(400).json({ error: 'Invalid task ID format. Expected TASK-NNN.' });
     }
@@ -277,9 +282,11 @@ app.patch('/tasks/:id/status', (req, res) => {
       return res.status(400).json({ error: 'Invalid status: ' + status });
     }
 
-    // Locate the task file
-    const found = findTaskFile(taskId);
-    if (!found) return res.status(404).json({ error: 'Task not found: ' + taskId });
+    // Locate the task file directly using epic dir (avoids cross-epic ID ambiguity)
+    const found = path.join(WORK_DIR, epic, taskId + '.md');
+    if (!fs.existsSync(found)) {
+      return res.status(404).json({ error: 'Task not found: ' + epic + '/' + taskId });
+    }
 
     // Regex-replace write pattern — same as stop endpoint (lines 194-197)
     const now = new Date().toISOString();

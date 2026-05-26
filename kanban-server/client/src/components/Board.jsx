@@ -26,15 +26,19 @@ export default function Board({ tasks, dispatch }) {
     if (destination.droppableId === source.droppableId) return;
     const newStatus = destination.droppableId;
     const originalStatus = source.droppableId;
-    dispatch({ type: 'DRAG_OPTIMISTIC', taskId: draggableId, newStatus });
-    fetch('/tasks/' + draggableId + '/status', {
+    // draggableId format: "epic/TASK-NNN"
+    const slashIdx = draggableId.indexOf('/');
+    const taskEpic = draggableId.slice(0, slashIdx);
+    const taskId = draggableId.slice(slashIdx + 1);
+    dispatch({ type: 'DRAG_OPTIMISTIC', taskUid: draggableId, newStatus });
+    fetch('/tasks/' + taskEpic + '/' + taskId + '/status', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: newStatus }),
     }).then(function(res) {
-      if (!res.ok) dispatch({ type: 'DRAG_REVERT', taskId: draggableId, originalStatus });
+      if (!res.ok) dispatch({ type: 'DRAG_REVERT', taskId, taskEpic, originalStatus });
     }).catch(function() {
-      dispatch({ type: 'DRAG_REVERT', taskId: draggableId, originalStatus });
+      dispatch({ type: 'DRAG_REVERT', taskId, taskEpic, originalStatus });
     });
   }
 
@@ -57,7 +61,7 @@ export default function Board({ tasks, dispatch }) {
                 </h2>
                 <div className="flex-1">
                   {(tasks[status] || []).map((task, index) => (
-                    <Draggable draggableId={task.id} index={index} key={task.id}>
+                    <Draggable draggableId={task.epic + '/' + task.id} index={index} key={task.epic + '/' + task.id}>
                       {(provided) => (
                         <div
                           ref={provided.innerRef}
