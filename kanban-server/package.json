@@ -1,0 +1,13 @@
+{
+  "name": "kanban-server",
+  "version": "1.0.0",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "5.2.1",
+    "chokidar": "3.6.0",
+    "js-yaml": "4.1.1"
+  }
+}
