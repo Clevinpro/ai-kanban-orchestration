@@ -20,8 +20,9 @@ const { execSync } = require('child_process');
 const rawPort = parseInt(process.env.PORT, 10);
 const PORT = (!process.env.PORT || isNaN(rawPort)) ? 6111 : rawPort;
 
-// Task files live at .planning/work/<epic>/*.md (relative to workspace root)
-const WORK_DIR = path.resolve('.planning/work');
+// Task files live at .planning/work/<epic>/*.md (workspace root, two levels up from __dirname)
+// Use __dirname so WORK_DIR resolves correctly regardless of the process CWD.
+const WORK_DIR = path.join(__dirname, '..', '.planning', 'work');
 
 // STOPPABLE statuses: active statuses that allow a stopped transition (D-02)
 // readyForDevelop and done are intentionally excluded.
@@ -205,7 +206,7 @@ app.post('/tasks/:id/stop', (req, res) => {
     if (!repoDirName) {
       return res.status(422).json({ error: 'Unknown repo value in task: ' + task.repo });
     }
-    const repoDir = path.resolve(repoDirName); // absolute path — avoids cwd drift (D-09)
+    const repoDir = path.join(__dirname, '..', repoDirName); // absolute path relative to server file
     if (!fs.existsSync(repoDir)) {
       return res.status(500).json({ error: 'Sub-repo directory not found: ' + repoDirName });
     }
@@ -328,7 +329,9 @@ chokidar.watch(WORK_DIR + '/**/*.md', {
 app.use(express.static(path.join(__dirname, 'public')));
 
 // SPA catch-all — serves index.html for any unmatched GET route (client-side routing)
-app.get('*', (req, res) => {
+// Express 5 path-to-regexp rejects bare '*'; use middleware filtered to GET instead.
+app.use((req, res, next) => {
+  if (req.method !== 'GET') return next();
   const indexPath = path.join(__dirname, 'public', 'index.html');
   if (fs.existsSync(indexPath)) {
     res.sendFile(indexPath);
