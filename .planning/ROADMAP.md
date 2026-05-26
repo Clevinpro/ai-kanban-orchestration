@@ -17,7 +17,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: TeamLead Skills** - `/team-lead:plan` and `/team-lead:execute` slash commands with safety guards
 - [x] **Phase 3: Sub-Agents** - Six agent definitions (be-developer, fe-developer, code-reviewer, qa-be, qa-fe, team-lead-check) (completed 2026-05-26)
 - [x] **Phase 4: Pipeline Integration** - End-to-end sequential orchestration with rejection loops and final check gate (completed 2026-05-26)
-- [ ] **Phase 5: Kanban Server** - Standalone Express + chokidar + SSE server that reads task files and exposes stop/commit
+- [x] **Phase 5: Kanban Server** - Standalone Express + chokidar + SSE server that reads task files and exposes stop/commit (completed 2026-05-26)
 - [ ] **Phase 6: Kanban UI** - Vite + React board with six status columns, live SSE updates, and drag-and-drop
 
 ## Phase Details
@@ -144,7 +144,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 05-03-PLAN.md — kanban-server: kanban-server/package.json + kanban-server/index.js (Express SSE + chokidar + stop-and-commit endpoint) (KANBAN-05)
+- [x] 05-03-PLAN.md — kanban-server: kanban-server/package.json + kanban-server/index.js (Express SSE + chokidar + stop-and-commit endpoint) (KANBAN-05)
 
 ### Phase 6: Kanban UI
 
@@ -173,5 +173,5 @@ Phases execute in numeric order. Phases 3 and 5 can begin as soon as Phase 1 is 
 | 2. TeamLead Skills | 3/3 | Complete | 2026-05-25 |
 | 3. Sub-Agents | 3/3 | Complete | 2026-05-25 |
 | 4. Pipeline Integration | 2/2 | Complete   | 2026-05-26 |
-| 5. Kanban Server | 2/3 | In Progress|  |
+| 5. Kanban Server | 3/3 | Complete   | 2026-05-26 |
 | 6. Kanban UI | 0/TBD | Not started | - |
