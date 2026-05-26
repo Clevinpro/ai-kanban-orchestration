@@ -188,7 +188,16 @@ app.post('/tasks/:id/stop', (req, res) => {
 
     // Determine sub-repo directory (D-04): be → ai-platform/, fe → ai-platform-fe/
     // T-05-07: always pass { cwd: repoDir } to execSync — workspace root has its own .git
-    const repoDir = task.repo === 'be' ? 'ai-platform' : 'ai-platform-fe';
+    // Validated lookup prevents unknown task.repo values from silently running git in the wrong dir.
+    const VALID_REPOS = { be: 'ai-platform', fe: 'ai-platform-fe' };
+    const repoDirName = VALID_REPOS[task.repo];
+    if (!repoDirName) {
+      return res.status(422).json({ error: 'Unknown repo value in task: ' + task.repo });
+    }
+    const repoDir = path.resolve(repoDirName); // absolute path — avoids cwd drift (D-09)
+    if (!fs.existsSync(repoDir)) {
+      return res.status(500).json({ error: 'Sub-repo directory not found: ' + repoDirName });
+    }
 
     // D-05: branch name pattern
     const branch = 'task/' + taskId + '/stopped';
