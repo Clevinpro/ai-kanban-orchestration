@@ -18,7 +18,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 3: Sub-Agents** - Six agent definitions (be-developer, fe-developer, code-reviewer, qa-be, qa-fe, team-lead-check) (completed 2026-05-26)
 - [x] **Phase 4: Pipeline Integration** - End-to-end sequential orchestration with rejection loops and final check gate (completed 2026-05-26)
 - [x] **Phase 5: Kanban Server** - Standalone Express + chokidar + SSE server that reads task files and exposes stop/commit (completed 2026-05-26)
-- [ ] **Phase 6: Kanban UI** - Vite + React board with six status columns, live SSE updates, and drag-and-drop
+- [x] **Phase 6: Kanban UI** - Vite + React board with six status columns, live SSE updates, and drag-and-drop (completed 2026-05-26)
 
 ## Phase Details
 
@@ -172,7 +172,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 06-03-PLAN.md — Drag-and-drop: DragDropContext + Droppable per column + Draggable per card + handleDragEnd with PATCH + optimistic revert (KANBAN-04)
+- [x] 06-03-PLAN.md — Drag-and-drop: DragDropContext + Droppable per column + Draggable per card + handleDragEnd with PATCH + optimistic revert (KANBAN-04)
 
 ## Progress
 
@@ -186,4 +186,4 @@ Phases execute in numeric order. Phases 3 and 5 can begin as soon as Phase 1 is 
 | 3. Sub-Agents | 3/3 | Complete | 2026-05-25 |
 | 4. Pipeline Integration | 2/2 | Complete   | 2026-05-26 |
 | 5. Kanban Server | 3/3 | Complete    | 2026-05-26 |
-| 6. Kanban UI | 2/3 | In Progress| 06-01, 06-02 complete |
+| 6. Kanban UI | 3/3 | Complete   | 2026-05-26 |
