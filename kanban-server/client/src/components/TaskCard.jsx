@@ -9,7 +9,7 @@ function repoBadge(repo) {
 const TaskCard = React.forwardRef(({ task }, ref) => (
   <div
     ref={ref}
-    className="bg-white rounded-md shadow-sm p-2 mb-1.5 text-xs cursor-grab"
+    className="bg-white rounded-md shadow-sm p-2 mb-1.5 text-xs"
   >
     <div className="font-medium text-gray-800 leading-snug mb-1 truncate">
       {task.title}
