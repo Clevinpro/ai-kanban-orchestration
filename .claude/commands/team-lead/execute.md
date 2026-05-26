@@ -112,6 +112,11 @@ Set `task_path` = the file path found in STEP 1.
   Prior receipts: <prior_receipts joined by ", " or "(none)" if empty>
   ```
 
+  **Stopped check:** Re-read the task file at `<task_path>`. If frontmatter `status` is `stopped`:
+    - Append to task file body: `[pipeline] STOPPED`
+    - Print: `Pipeline stopped by user at Developer. Task <id> is on branch task/<id>/stopped.`
+    - Stop pipeline (do not advance to the next agent).
+
   Invoke Agent with `subagent_type = developer_agent`. Include the stage context preamble at the top of the agent prompt, followed by:
   ```
   Read the task file at <task_path> and implement the task according to the Description and Acceptance Criteria.
@@ -154,6 +159,11 @@ Set `task_path` = the file path found in STEP 1.
   Changed files:
   <diff_stat>
   ```
+
+  **Stopped check:** Re-read the task file at `<task_path>`. If frontmatter `status` is `stopped`:
+    - Append to task file body: `[pipeline] STOPPED`
+    - Print: `Pipeline stopped by user at CodeReview. Task <id> is on branch task/<id>/stopped.`
+    - Stop pipeline (do not advance to the next agent).
 
   Invoke Agent with `subagent_type = "code-reviewer"`. Include the stage context preamble at the top of the agent prompt, followed by:
   ```
@@ -207,6 +217,11 @@ Set `task_path` = the file path found in STEP 1.
   Prior receipts: <prior_receipts joined by ", ">
   ```
 
+  **Stopped check:** Re-read the task file at `<task_path>`. If frontmatter `status` is `stopped`:
+    - Append to task file body: `[pipeline] STOPPED`
+    - Print: `Pipeline stopped by user at QA. Task <id> is on branch task/<id>/stopped.`
+    - Stop pipeline (do not advance to the next agent).
+
   Invoke Agent with `subagent_type = qa_agent`. Include the stage context preamble at the top of the agent prompt, followed by:
   ```
   Read the task file at <task_path> and run the affected tests for this task.
@@ -257,6 +272,11 @@ Set `task_path` = the file path found in STEP 1.
   Stage context: TeamLeadCheck cycle <N> of 2
   Prior receipts: <prior_receipts joined by ", ">
   ```
+
+  **Stopped check:** Re-read the task file at `<task_path>`. If frontmatter `status` is `stopped`:
+    - Append to task file body: `[pipeline] STOPPED`
+    - Print: `Pipeline stopped by user at TeamLeadCheck. Task <id> is on branch task/<id>/stopped.`
+    - Stop pipeline (do not advance to the next agent).
 
   Invoke Agent with `subagent_type = "team-lead-check"`. Include the stage context preamble at the top of the agent prompt, followed by:
   ```
