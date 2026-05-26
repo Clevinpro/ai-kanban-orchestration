@@ -17,7 +17,7 @@ fields:
     required: true
   status:
     type: enum
-    values: [readyForDevelop, inProgress, inReview, inTesting, forTeamLeadCheck, done]
+    values: [readyForDevelop, inProgress, inReview, inTesting, forTeamLeadCheck, done, stopped]
     required: true
     initial: readyForDevelop
   priority:
@@ -68,3 +68,7 @@ lifecycle:
       inProgress: "Rejection-only — requires ## TeamLead Check block with Status: REJECTED in task body (enforced by task-state-guard.js)"
   done:
     allowed_next: []
+  stopped:
+    allowed_next: []
+    notes:
+      description: "Terminal status set by kanban-server stop-and-commit endpoint. Pipeline halts without advancing."

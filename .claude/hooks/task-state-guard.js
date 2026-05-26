@@ -8,12 +8,13 @@ const fs = require('fs');
 const path = require('path');
 
 const VALID_TRANSITIONS = {
-  readyForDevelop: ['inProgress'],
-  inProgress: ['inReview', 'readyForDevelop'],
-  inReview: ['inTesting', 'inProgress'],
-  inTesting: ['forTeamLeadCheck', 'inProgress'],
-  forTeamLeadCheck: ['done', 'inProgress'],
-  done: [],
+  readyForDevelop:  ['inProgress'],
+  inProgress:       ['inReview', 'readyForDevelop', 'stopped'],
+  inReview:         ['inTesting', 'inProgress', 'stopped'],
+  inTesting:        ['forTeamLeadCheck', 'inProgress', 'stopped'],
+  forTeamLeadCheck: ['done', 'inProgress', 'stopped'],
+  done:             [],
+  stopped:          [],
 };
 
 let input = '';
