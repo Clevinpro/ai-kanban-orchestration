@@ -3,7 +3,10 @@
   "version": "1.0.0",
   "type": "commonjs",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "dev": "npm run dev --prefix client",
+    "build": "npm run build --prefix client",
+    "preview": "npm run preview --prefix client"
   },
   "dependencies": {
     "express": "5.2.1",
