@@ -119,6 +119,16 @@ function pushEvent(taskObj) {
 const app = express();
 app.use(express.json());
 
+// Global CORS middleware — allows browser clients (Phase 6 Vite) to reach all endpoints.
+// Without this, POST /tasks/:id/stop fails the browser preflight (OPTIONS returns 404).
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
+
 // GET /health — liveness probe
 app.get('/health', (req, res) => {
   res.json({ ok: true, port: PORT });
