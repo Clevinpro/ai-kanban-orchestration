@@ -44,7 +44,7 @@
 - [ ] **KANBAN-01**: Board displays six status columns — `readyForDevelop / inProgress / inReview / inTesting / forTeamLeadCheck / Done`
 - [ ] **KANBAN-02**: Auto-refresh via SSE — task cards update live without page refresh as agents write task files
 - [ ] **KANBAN-03**: Task card shows: title, complexity (1-10), repo (FE/BE/both), epic name
-- [ ] **KANBAN-04**: Drag-and-drop status override — user can manually move a card between columns; writes updated status to task file frontmatter
+- [x] **KANBAN-04**: Drag-and-drop status override — user can manually move a card between columns; writes updated status to task file frontmatter
 - [x] **KANBAN-05**: Stop task and commit — user can stop a running task and commit its current code changes to a branch (no PR created)
 
 ## v2 Requirements
@@ -104,7 +104,7 @@
 | KANBAN-01 | Phase 6 | Pending |
 | KANBAN-02 | Phase 6 | Pending |
 | KANBAN-03 | Phase 6 | Pending |
-| KANBAN-04 | Phase 6 | Pending |
+| KANBAN-04 | Phase 6 | Complete |
 
 **Coverage:**
 - v1 requirements: 27 total

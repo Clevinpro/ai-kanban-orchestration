@@ -159,8 +159,20 @@ Plans:
   3. Each task card displays title, complexity score (1-10), repo label (FE/BE/both), and epic name
   4. Dragging a card to a different column writes the updated status to the task file's YAML frontmatter
 
-**Plans**: TBD
-**UI hint**: yes
+**Plans**: 3 plans
+
+Plans:
+**Wave 1**
+
+- [x] 06-01-PLAN.md — Server extension: PATCH /tasks/:id/status endpoint, CORS PATCH addition, X-Accel-Buffering SSE fix, static serving from public/, kanban-server/package.json dev/build scripts (KANBAN-04)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 06-02-PLAN.md — Vite + React live board: client/package.json, vite.config.js, index.html, main.jsx, index.css, App.jsx (useReducer + SSE), Board.jsx (six columns), TaskCard.jsx (title/complexity/repo/epic) (KANBAN-01, KANBAN-02, KANBAN-03)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 06-03-PLAN.md — Drag-and-drop: DragDropContext + Droppable per column + Draggable per card + handleDragEnd with PATCH + optimistic revert (KANBAN-04)
 
 ## Progress
 
@@ -174,4 +186,4 @@ Phases execute in numeric order. Phases 3 and 5 can begin as soon as Phase 1 is 
 | 3. Sub-Agents | 3/3 | Complete | 2026-05-25 |
 | 4. Pipeline Integration | 2/2 | Complete   | 2026-05-26 |
 | 5. Kanban Server | 3/3 | Complete    | 2026-05-26 |
-| 6. Kanban UI | 0/TBD | Not started | - |
+| 6. Kanban UI | 1/3 | In Progress|  |
