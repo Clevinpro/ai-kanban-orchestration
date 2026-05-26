@@ -71,13 +71,15 @@ process.stdin.on('end', () => {
       // Annotation-gated reverse transitions (D-06) — rejection-only gating
       if (currentStatus === 'inReview' && newStatus === 'inProgress') {
         // Only allow if QA Results block has Status: FAIL
-        if (!diskContent.match(/## QA Results[\s\S]*?Status: FAIL/)) {
+        // [^#]* stops at the next ## heading so text in subsequent sections cannot satisfy this gate
+        if (!diskContent.match(/## QA Results\b[^#]*Status: FAIL/)) {
           deny('Status regression inReview → inProgress requires ## QA Results block with Status: FAIL');
         }
       }
       if (currentStatus === 'forTeamLeadCheck' && newStatus === 'inProgress') {
         // Only allow if TeamLead Check block has Status: REJECTED
-        if (!diskContent.match(/## TeamLead Check[\s\S]*?Status: REJECTED/)) {
+        // [^#]* stops at the next ## heading so text in subsequent sections cannot satisfy this gate
+        if (!diskContent.match(/## TeamLead Check\b[^#]*Status: REJECTED/)) {
           deny('Status regression forTeamLeadCheck → inProgress requires ## TeamLead Check block with Status: REJECTED');
         }
       }
