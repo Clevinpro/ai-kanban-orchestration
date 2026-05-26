@@ -140,7 +140,7 @@ Plans:
 **Wave 1** *(Plans 01 and 02 parallel — no shared files)*
 
 - [x] 05-01-PLAN.md — stopped transition guard: scripts/test-kanban-guard.sh + task-state-guard.js VALID_TRANSITIONS extension + task-schema.yaml stopped status (KANBAN-05)
-- [ ] 05-02-PLAN.md — pipeline stopped check: execute.md stopped-check blocks at all four stage gates (KANBAN-05)
+- [x] 05-02-PLAN.md — pipeline stopped check: execute.md stopped-check blocks at all four stage gates (KANBAN-05)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -173,5 +173,5 @@ Phases execute in numeric order. Phases 3 and 5 can begin as soon as Phase 1 is 
 | 2. TeamLead Skills | 3/3 | Complete | 2026-05-25 |
 | 3. Sub-Agents | 3/3 | Complete | 2026-05-25 |
 | 4. Pipeline Integration | 2/2 | Complete   | 2026-05-26 |
-| 5. Kanban Server | 1/3 | In Progress|  |
+| 5. Kanban Server | 2/3 | In Progress|  |
 | 6. Kanban UI | 0/TBD | Not started | - |
