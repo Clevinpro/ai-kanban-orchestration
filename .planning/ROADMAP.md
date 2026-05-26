@@ -168,7 +168,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [x] 06-02-PLAN.md — Vite + React live board: client/package.json, vite.config.js, index.html, main.jsx, index.css, App.jsx (useReducer + SSE), Board.jsx (six columns), TaskCard.jsx (title/complexity/repo/epic) (KANBAN-01, KANBAN-02, KANBAN-03)
+- [x] 06-02-PLAN.md — Vite + React live board: client/package.json, vite.config.js, index.html, main.jsx, index.css, App.jsx (useReducer + SSE), Board.jsx (six columns), TaskCard.jsx (title/complexity/repo/epic) (KANBAN-01, KANBAN-02, KANBAN-03) (completed 2026-05-26)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -186,4 +186,4 @@ Phases execute in numeric order. Phases 3 and 5 can begin as soon as Phase 1 is 
 | 3. Sub-Agents | 3/3 | Complete | 2026-05-25 |
 | 4. Pipeline Integration | 2/2 | Complete   | 2026-05-26 |
 | 5. Kanban Server | 3/3 | Complete    | 2026-05-26 |
-| 6. Kanban UI | 2/3 | In Progress|  |
+| 6. Kanban UI | 2/3 | In Progress| 06-01, 06-02 complete |

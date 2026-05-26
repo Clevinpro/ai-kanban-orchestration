@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 06-01-PLAN.md
-last_updated: "2026-05-26T18:49:50.565Z"
+stopped_at: Completed 06-02-PLAN.md
+last_updated: "2026-05-26T20:00:00.000Z"
 last_activity: 2026-05-26
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 19
-  completed_plans: 18
-  percent: 83
+  completed_plans: 19
+  percent: 95
 ---
 
 # Project State
@@ -30,7 +30,7 @@ Plan: 3 plans (3 waves)
 Status: Ready to execute
 Last activity: 2026-05-26
 
-Progress: [██████████] 95%
+Progress: [████████████] 95%
 
 ## Performance Metrics
 
@@ -59,6 +59,7 @@ Progress: [██████████] 95%
 | Phase 03-sub-agents P03 | 56min | 2 tasks | 3 files |
 | Phase 05-kanban-server P03 | 10 | 2 tasks | 3 files |
 | Phase 06-kanban-ui P01 | 8 | 2 tasks | 2 files |
+| Phase 06-kanban-ui P02 | 45 | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -98,6 +99,10 @@ Recent decisions affecting current work:
 - [Phase ?]: 05-03: PORT parsed via parseInt(process.env.PORT, 10) for numeric type in health response
 - [Phase ?]: 05-03: CORS header and 30s SSE heartbeat added proactively for Phase 6 UI compatibility
 - [Phase ?]: 06-01: VALID_STATUSES excludes 'stopped' — drag-drop only targets 6 pipeline columns; stopped set only by POST /tasks/:id/stop (D-09)
+- 06-02: Tailwind v4 CSS-first setup — @import "tailwindcss" + @tailwindcss/vite plugin; no tailwind.config.js, no postcss.config.js
+- 06-02: boardReducer DRAG_OPTIMISTIC and DRAG_REVERT fully implemented — Plan 06-03 only adds dispatch calls, not reducer cases
+- 06-02: TaskCard uses React.forwardRef — Plan 06-03 can wrap with Draggable without component refactor
+- 06-02: client/package.json declares type:module to override parent kanban-server/package.json type:commonjs (Vite ESM requirement)
 
 ### Pending Todos
 
@@ -115,6 +120,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-05-26T18:49:50.559Z
-Stopped at: Completed 06-01-PLAN.md
+Last session: 2026-05-26T20:00:00.000Z
+Stopped at: Completed 06-02-PLAN.md
 Resume file: None
