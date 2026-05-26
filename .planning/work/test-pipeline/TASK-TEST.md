@@ -1,7 +1,7 @@
 ---
 id: TASK-TEST
 title: "Test task for pipeline smoke testing"
-status: readyForDevelop
+status: inProgress
 priority: medium
 repo: be
 epic: test-pipeline
