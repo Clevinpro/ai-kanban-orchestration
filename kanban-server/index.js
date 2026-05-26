@@ -214,7 +214,11 @@ app.post('/tasks/:id/stop', (req, res) => {
     // D-06: commit message pattern
     const msg = 'wip(' + taskId + '): stopped mid-pipeline';
 
-    // Empty working tree guard: skip commit if nothing to commit
+    // Empty working tree guard: skip commit if nothing to commit.
+    // Also checks for commits that exist locally but haven't been pushed yet —
+    // git diff --stat HEAD only shows uncommitted working-tree changes, so a
+    // developer agent that already committed its work would produce empty diffOutput
+    // even though there are new commits that should be preserved on the stop branch.
     let diffOutput = '';
     try {
       diffOutput = execSync('git diff --stat HEAD', { cwd: repoDir, stdio: 'pipe' }).toString().trim();
@@ -222,7 +226,13 @@ app.post('/tasks/:id/stop', (req, res) => {
       // git diff failed — skip commit
       return res.json({ ok: true, branch, committed: false });
     }
-    if (!diffOutput) {
+    // Check for commits ahead of the remote (committed-but-not-pushed state).
+    // Falls back to listing all HEAD commits when no upstream is configured.
+    const aheadOutput = execSync(
+      'git log --oneline @{u}..HEAD 2>/dev/null || git log --oneline HEAD',
+      { cwd: repoDir, stdio: 'pipe' }
+    ).toString().trim();
+    if (!diffOutput && !aheadOutput) {
       return res.json({ ok: true, branch, committed: false });
     }
 
