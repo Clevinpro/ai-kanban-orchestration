@@ -16,7 +16,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Foundation** - Task schema, CLAUDE.md layering, and context isolation rules that every phase depends on
 - [x] **Phase 2: TeamLead Skills** - `/team-lead:plan` and `/team-lead:execute` slash commands with safety guards
 - [ ] **Phase 3: Sub-Agents** - Six agent definitions (be-developer, fe-developer, code-reviewer, qa-be, qa-fe, team-lead-check)
-- [ ] **Phase 4: Pipeline Integration** - End-to-end sequential orchestration with rejection loops and final check gate
+- [x] **Phase 4: Pipeline Integration** - End-to-end sequential orchestration with rejection loops and final check gate (completed 2026-05-26)
 - [ ] **Phase 5: Kanban Server** - Standalone Express + chokidar + SSE server that reads task files and exposes stop/commit
 - [ ] **Phase 6: Kanban UI** - Vite + React board with six status columns, live SSE updates, and drag-and-drop
 
@@ -111,7 +111,16 @@ Plans:
   2. A deliberately failing QA test triggers the rejection loop: the task returns to Developer with failure evidence appended, the developer re-fixes, and QA re-runs until pass
   3. TeamLeadCheck rejects a task that does not align with the original SPEC.md, sending it back to the developer; a correctly implemented task is marked `done`
 
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+**Wave 1**
+
+- [x] 04-01-PLAN.md — Hook annotation-gate extension: task-state-guard.js rejection-only reverse transitions + test-pipeline-guard.sh + TASK-TEST.md fixture
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [x] 04-02-PLAN.md — execute.md pipeline rewrite: real Agent invocations, rejection loops (qa_cycle/tlc_cycle/cr_cycle), REVIEW-BLOCK extraction, Retry/Skip/Abort gates (PIPE-01, PIPE-02, PIPE-03)
 
 ### Phase 5: Kanban Server
 
@@ -153,6 +162,6 @@ Phases execute in numeric order. Phases 3 and 5 can begin as soon as Phase 1 is 
 | 1. Foundation | 5/5 | Complete    | 2026-05-22 |
 | 2. TeamLead Skills | 3/3 | Complete | 2026-05-25 |
 | 3. Sub-Agents | 3/3 | Complete | 2026-05-25 |
-| 4. Pipeline Integration | 0/TBD | Not started | - |
+| 4. Pipeline Integration | 2/2 | Complete   | 2026-05-26 |
 | 5. Kanban Server | 0/TBD | Not started | - |
 | 6. Kanban UI | 0/TBD | Not started | - |
