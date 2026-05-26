@@ -107,8 +107,11 @@ process.stdin.on('end', () => {
       const updatedContent = (tool_input.content || '').replace(/(updated-at:\s*)([^\n]+)/, `$1${now}`);
       modifiedInput = { content: updatedContent };
     } else {
-      // Edit tool: modifiedInput.new_string is the replacement snippet (not full file)
-      // The timestamp regex is applied to the new_string portion being substituted
+      // Edit tool: modifiedInput.new_string is the replacement snippet (not full file).
+      // The timestamp injection below is a no-op for the normal pipeline case where only
+      // the status: line is being replaced — updated-at is not in new_string and the
+      // regex simply does not match. updated-at is only updated here when the Edit call
+      // explicitly includes the updated-at field inside new_string.
       const updatedNewString = (tool_input.new_string || '').replace(/(updated-at:\s*)([^\n]+)/, `$1${now}`);
       modifiedInput = { new_string: updatedNewString };
     }
