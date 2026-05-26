@@ -123,7 +123,7 @@ app.use(express.json());
 // Without this, POST /tasks/:id/stop fails the browser preflight (OPTIONS returns 404).
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
@@ -140,6 +140,7 @@ app.get('/events', (req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('Access-Control-Allow-Origin', '*'); // CORS for Phase 6 Vite client
+  res.setHeader('X-Accel-Buffering', 'no'); // Pitfall 1: prevent Vite proxy SSE buffering
   res.flushHeaders();
 
   // D-13: emit initial snapshot before subscribing to live updates
@@ -251,6 +252,49 @@ app.post('/tasks/:id/stop', (req, res) => {
   }
 });
 
+// VALID_STATUSES: drag-droppable status values — all pipeline columns except 'stopped'
+// D-09: 'stopped' is excluded from drag-drop targets; set only by POST /tasks/:id/stop
+const VALID_STATUSES = new Set([
+  'readyForDevelop', 'inProgress', 'inReview',
+  'inTesting', 'forTeamLeadCheck', 'done'
+  // 'stopped' intentionally excluded — set only via POST /tasks/:id/stop
+]);
+
+// PATCH /tasks/:id/status — update task status via drag-and-drop (D-05, D-06)
+app.patch('/tasks/:id/status', (req, res) => {
+  try {
+    const taskId = req.params.id;
+
+    // T-06-01: validate taskId format — prevents path traversal (same as stop endpoint)
+    if (!/^TASK-\d{3}$/.test(taskId)) {
+      return res.status(400).json({ error: 'Invalid task ID format. Expected TASK-NNN.' });
+    }
+
+    // T-06-02: validate status against VALID_STATUSES before any file I/O (ASVS V5)
+    const { status } = req.body;
+    if (!status || !VALID_STATUSES.has(status)) {
+      return res.status(400).json({ error: 'Invalid status: ' + status });
+    }
+
+    // Locate the task file
+    const found = findTaskFile(taskId);
+    if (!found) return res.status(404).json({ error: 'Task not found: ' + taskId });
+
+    // Regex-replace write pattern — same as stop endpoint (lines 194-197)
+    const now = new Date().toISOString();
+    let content = fs.readFileSync(found, 'utf8');
+    content = content.replace(/^status:\s*\S+/m, 'status: ' + status);
+    content = content.replace(/^updated-at:\s*.+/m, 'updated-at: ' + now);
+    fs.writeFileSync(found, content, 'utf8');
+
+    // Return updated task object
+    const task = parseTaskFile(found);
+    return res.json({ ok: true, task });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // chokidar watcher — live file change events (D-11, D-12, SC-2)
 // Pattern 2 from RESEARCH.md: ignoreInitial:true; initial snapshot handled per SSE connect (D-13)
@@ -274,6 +318,24 @@ chokidar.watch(WORK_DIR + '/**/*.md', {
     // D-12: deleted tasks include deleted: true flag
     pushEvent({ id: path.basename(f, '.md'), deleted: true });
   });
+
+// ---------------------------------------------------------------------------
+// Static file serving and SPA catch-all (D-02, D-03)
+// MUST come after all API routes to avoid shadowing API endpoints.
+// ---------------------------------------------------------------------------
+
+// Serve Vite build output from kanban-server/public/ (D-02)
+app.use(express.static(path.join(__dirname, 'public')));
+
+// SPA catch-all — serves index.html for any unmatched GET route (client-side routing)
+app.get('*', (req, res) => {
+  const indexPath = path.join(__dirname, 'public', 'index.html');
+  if (fs.existsSync(indexPath)) {
+    res.sendFile(indexPath);
+  } else {
+    res.status(404).json({ error: 'UI not built. Run: npm run build --prefix client' });
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Start server
