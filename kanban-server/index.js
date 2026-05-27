@@ -12,7 +12,7 @@ const fs = require('fs');
 const path = require('path');
 const chokidar = require('chokidar'); // MUST be 3.6.0 — v5 is ESM-only (ERR_REQUIRE_ESM)
 const yaml = require('js-yaml');
-const { execSync } = require('child_process');
+const { execSync, spawn } = require('child_process');
 
 // D-10: port configured via PORT env var with fallback 6111
 // Guard against non-numeric values (e.g. PORT=abc) that parseInt returns NaN for,
@@ -288,6 +288,24 @@ app.patch('/tasks/:epic/:id/status', (req, res) => {
       return res.status(404).json({ error: 'Task not found: ' + epic + '/' + taskId });
     }
 
+    if (status === 'inProgress') {
+      // Don't write file — agent sets inProgress itself. Board shows it optimistically.
+      const script = path.join(__dirname, 'run-task.sh');
+      const autoNext = req.body.autoNext ? ' --auto-next' : '';
+      spawn('osascript', [
+        '-e', `tell application "iTerm"`,
+        '-e', `  tell current window`,
+        '-e', `    create tab with default profile`,
+        '-e', `    tell current session`,
+        '-e', `      write text "bash '${script}' ${taskId}${autoNext}"`,
+        '-e', `    end tell`,
+        '-e', `  end tell`,
+        '-e', `end tell`,
+      ], { detached: true, stdio: 'ignore' }).unref();
+      const task = parseTaskFile(found);
+      return res.json({ ok: true, task });
+    }
+
     // Regex-replace write pattern — same as stop endpoint (lines 194-197)
     const now = new Date().toISOString();
     let content = fs.readFileSync(found, 'utf8');
@@ -323,8 +341,8 @@ chokidar.watch(WORK_DIR + '/**/*.md', {
     if (t) pushEvent(t);
   })
   .on('unlink', function (f) {
-    // D-12: deleted tasks include deleted: true flag
-    pushEvent({ id: path.basename(f, '.md'), deleted: true });
+    // D-12: deleted tasks include deleted: true flag; emit epic so taskUid resolves correctly
+    pushEvent({ id: path.basename(f, '.md'), epic: path.basename(path.dirname(f)), deleted: true });
   });
 
 // ---------------------------------------------------------------------------

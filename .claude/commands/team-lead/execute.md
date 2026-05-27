@@ -1,7 +1,7 @@
 ---
 name: team-lead:execute
 description: Run the full automated pipeline (Developer → CodeReview → QA → TeamLeadCheck → Done) for a single task.
-argument-hint: "<TASK-ID>"
+argument-hint: "<TASK-ID> [--auto-next]"
 allowed-tools:
   - Read
   - Write
@@ -24,7 +24,12 @@ allowed-tools:
 
 ## STEP 1 — Normalize Task ID
 
-Take `$ARGUMENTS`. Normalize to three-digit zero-padded format:
+Take `$ARGUMENTS`. Check for the `--auto-next` flag:
+
+- If `$ARGUMENTS` contains `--auto-next`: `SET auto_next = true`, strip `--auto-next` from the string before extracting the task ID.
+- Otherwise: `SET auto_next = false`.
+
+Normalize the remaining input to three-digit zero-padded format:
 
 - If the input is `1`, `01`, or `TASK-1`, normalize to `TASK-001`.
 - If the input is `TASK-001` (already normalized), use as-is.
@@ -63,10 +68,10 @@ Read the task file located by Glob. Extract from the frontmatter:
 
   | Current status | Resume at stage |
   |---------------|----------------|
-  | `inProgress` | CodeReview |
-  | `inReview` | QA |
-  | `inTesting` | TeamLeadCheck |
-  | `forTeamLeadCheck` | Done |
+  | `inProgress` | Developer |
+  | `inReview` | CodeReview |
+  | `inTesting` | QA |
+  | `forTeamLeadCheck` | TeamLeadCheck |
   | `done` | (already complete — print "Task already complete" and stop) |
   | `stopped` | (requires manual status reset — print "Task <id> is stopped. Reset to readyForDevelop or inProgress manually, then re-run." and stop) |
 
@@ -293,6 +298,7 @@ Set `task_path` = the file path found in STEP 1.
     - Print `[TeamLeadCheck] Done ✓`
     - Print `Pipeline complete. Task <id> is now done.`
     - Break OUTER LOOP.
+    - Proceed to STEP 4.
 
   - If receipt contains `"REJECTED"`:
     - Increment `tlc_cycle`.
@@ -315,7 +321,32 @@ Set `task_path` = the file path found in STEP 1.
 
 ---
 
-## STEP 4 — Failure Handling
+## STEP 4 — Auto-Next Chain
+
+Skip this step if `auto_next = false`.
+
+Run Bash to find all task files in the same epic directory and identify the next candidate:
+
+```bash
+grep -l "^status: readyForDevelop" .planning/work/<epic>/TASK-*.md 2>/dev/null | sort
+```
+
+From the output:
+- Filter to files whose numeric ID (extracted from filename) is **greater than** the current task's numeric ID.
+- Take the first result (lowest ID above current).
+
+If a candidate is found:
+- Print `[Auto-next] → <next-id>`
+- SET `task_id = <next-id>` (already normalized from filename)
+- Restart from **STEP 2** (skip flag parsing — `auto_next` stays `true`, task file already known from the grep path).
+
+If no candidate is found:
+- Print `[Auto-next] No more readyForDevelop tasks in epic <epic>. All done.`
+- Stop.
+
+---
+
+## STEP 5 — Failure Handling
 
 If at any stage a failure occurs (the hook denied the transition, or the user signals a failure), pause immediately. Print:
 

@@ -1,4 +1,4 @@
-import { useReducer, useEffect, useRef } from 'react';
+import { useReducer, useEffect, useRef, useState } from 'react';
 import Board from './components/Board';
 
 const COLUMN_ORDER = [
@@ -62,8 +62,42 @@ function boardReducer(state, action) {
 
 export default function App() {
   const [state, dispatch] = useReducer(boardReducer, initialState);
+  const [autoRun, setAutoRun] = useState(() => localStorage.getItem('kanban-autoRun') === 'true');
+
+  useEffect(() => {
+    localStorage.setItem('kanban-autoRun', autoRun);
+  }, [autoRun]);
   const esRef = useRef(null);
   const retryRef = useRef(null);
+  const prevDoneRef = useRef(new Set());
+
+  // Detect newly-done tasks and trigger next readyForDevelop when autoRun is on.
+  // Uses state directly (not a stale ref) so the chain works for every task.
+  useEffect(() => {
+    const currDoneIds = new Set((state.done || []).map((t) => taskUid(t)));
+
+    if (autoRun) {
+      const newlyDone = (state.done || []).filter((t) => !prevDoneRef.current.has(taskUid(t)));
+      if (newlyDone.length > 0) {
+        const readyTasks = (state.readyForDevelop || [])
+          .slice()
+          .sort((a, b) => a.id.localeCompare(b.id));
+        if (readyTasks.length > 0) {
+          const next = readyTasks[0];
+          dispatch({ type: 'DRAG_OPTIMISTIC', taskUid: taskUid(next), newStatus: 'inProgress' });
+          fetch('/tasks/' + next.epic + '/' + next.id + '/status', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'inProgress', autoNext: true }),
+          }).catch(() => {
+            dispatch({ type: 'DRAG_REVERT', taskId: next.id, taskEpic: next.epic, originalStatus: 'readyForDevelop' });
+          });
+        }
+      }
+    }
+
+    prevDoneRef.current = currDoneIds;
+  }, [state, autoRun]);
 
   useEffect(() => {
     function connect() {
@@ -89,5 +123,5 @@ export default function App() {
     };
   }, [dispatch]);
 
-  return <Board tasks={state} dispatch={dispatch} />;
+  return <Board tasks={state} dispatch={dispatch} autoRun={autoRun} setAutoRun={setAutoRun} />;
 }

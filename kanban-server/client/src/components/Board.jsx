@@ -19,7 +19,7 @@ const COLUMN_LABELS = {
   done: 'Done',
 };
 
-export default function Board({ tasks, dispatch }) {
+export default function Board({ tasks, dispatch, autoRun, setAutoRun }) {
   function handleDragEnd(result) {
     const { draggableId, source, destination, reason } = result;
     if (!destination || reason === 'CANCEL') return;
@@ -34,7 +34,7 @@ export default function Board({ tasks, dispatch }) {
     fetch('/tasks/' + taskEpic + '/' + taskId + '/status', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: newStatus }),
+      body: JSON.stringify({ status: newStatus, autoNext: newStatus === 'inProgress' && autoRun }),
     }).then(function(res) {
       if (!res.ok) dispatch({ type: 'DRAG_REVERT', taskId, taskEpic, originalStatus });
     }).catch(function() {
@@ -44,7 +44,8 @@ export default function Board({ tasks, dispatch }) {
 
   return (
     <DragDropContext onDragEnd={handleDragEnd}>
-      <div className="flex gap-2 p-3 min-h-screen bg-gray-50">
+      <div className="flex flex-col min-h-screen bg-gray-50">
+      <div className="flex gap-2 p-3 flex-1">
         {COLUMN_ORDER.map((status) => (
           <Droppable droppableId={status} key={status}>
             {(provided) => (
@@ -80,6 +81,23 @@ export default function Board({ tasks, dispatch }) {
             )}
           </Droppable>
         ))}
+      </div>
+      </div>
+      <div className="sticky bottom-0 bg-white border-t border-gray-200 px-4 py-2 flex items-center gap-3">
+        <button
+          onClick={() => setAutoRun((v) => !v)}
+          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${autoRun ? 'bg-green-500' : 'bg-gray-300'}`}
+        >
+          <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform ${autoRun ? 'translate-x-4' : 'translate-x-1'}`} />
+        </button>
+        <span className="text-xs text-gray-600">
+          Auto-run next task when previous is done
+          {autoRun && (tasks.readyForDevelop?.length ?? 0) > 0 && (
+            <span className="ml-2 text-green-600 font-medium">
+              · next: {[...tasks.readyForDevelop].sort((a, b) => a.id.localeCompare(b.id))[0]?.id}
+            </span>
+          )}
+        </span>
       </div>
     </DragDropContext>
   );
