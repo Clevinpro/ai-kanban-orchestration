@@ -157,6 +157,9 @@ Set `task_path` = the file path found in STEP 1.
 
   ### CodeReview Stage
 
+  Edit the task file: change `status: inProgress` to `status: inReview`.
+  (On re-loop when status is already `inReview`, the hook will deny a same-to-same transition; skip the Edit and proceed directly to the Agent call.)
+
   Construct the stage context preamble:
   ```
   Task: <task_path>
@@ -192,29 +195,26 @@ Set `task_path` = the file path found in STEP 1.
   - If receipt contains `"APPROVED"`:
     - Reset `cr_cycle = 0`.
     - Print `[CodeReview] Done ✓`
-    - Continue to Status Advance.
+    - Continue to QA Stage.
 
   - If receipt contains `"CHANGES_REQUESTED"`:
     - Increment `cr_cycle`.
     - If `cr_cycle >= 2`:
       - Print: `CodeReview CHANGES_REQUESTED cap reached (2 cycles). Retry / Skip / Abort?`
       - Wait for user response.
-        - **Retry**: reset `cr_cycle = 0`, continue INNER LOOP from Developer Stage (do NOT re-Edit status — it is already `inProgress`).
-        - **Skip**: treat as APPROVED (clear CHANGES_REQUESTED signal). Reset `cr_cycle = 0`. Continue to Status Advance.
+        - **Retry**: reset `cr_cycle = 0`, Edit the task file: change `status: inReview` to `status: inProgress`. Continue INNER LOOP from Developer Stage.
+        - **Skip**: treat as APPROVED (clear CHANGES_REQUESTED signal). Reset `cr_cycle = 0`. Continue to QA Stage.
         - **Abort**: stop pipeline. Print `Pipeline aborted at CodeReview.`
     - Else (below cap):
-      - Continue INNER LOOP from Developer Stage (do NOT re-Edit status — it is already `inProgress`). Do NOT increment `qa_cycle`.
-
-  ---
-
-  ### Status Advance
-
-  Edit the task file: change `status: inProgress` to `status: inReview`.
-  (Only reached after CodeReview APPROVED.)
+      - Edit the task file: change `status: inReview` to `status: inProgress`. (The hook validates the REVIEW-BLOCK with CHANGES_REQUESTED is present before allowing this transition.)
+      - Continue INNER LOOP from Developer Stage. Do NOT increment `qa_cycle`.
 
   ---
 
   ### QA Stage
+
+  Edit the task file: change `status: inReview` to `status: inTesting`.
+  (On re-loop when status is already `inTesting`, the hook will deny a same-to-same transition; skip the Edit and proceed directly to the Agent call.)
 
   Construct the stage context preamble:
   ```
@@ -251,7 +251,7 @@ Set `task_path` = the file path found in STEP 1.
         - **Abort**: stop pipeline. Print `Pipeline aborted at QA.`
     - Else (below cap):
       - Print: `[QA] FAIL ✗. Rejection loop cycle <qa_cycle> of 3.`
-      - Edit the task file: change `status: inReview` to `status: inProgress`. (The hook validates the ## QA Results Status: FAIL annotation written by the qa agent is present before allowing this transition.)
+      - Edit the task file: change `status: inTesting` to `status: inProgress`. (The hook validates the ## QA Results Status: FAIL annotation written by the qa agent is present before allowing this transition.)
       - Continue INNER LOOP from Developer Stage.
 
   ---
@@ -259,10 +259,6 @@ Set `task_path` = the file path found in STEP 1.
   **END INNER LOOP**
 
   ---
-
-  ### Status Advance to inTesting
-
-  Edit the task file: change `status: inReview` to `status: inTesting`.
 
   ### Status Advance to forTeamLeadCheck
 
