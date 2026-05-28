@@ -9,7 +9,7 @@
 
 - [x] **FOUND-01**: Task file schema defined — `.planning/work/TASK-XX.md` with YAML frontmatter fields: `id`, `title`, `status`, `priority`, `repo` (be|fe|both), `epic`, `complexity` (1-10), `created-at`, `updated-at`
 - [x] **FOUND-02**: Six-state status lifecycle enforced: `readyForDevelop → inProgress → inReview → inTesting → forTeamLeadCheck → done`
-- [x] **FOUND-03**: Root CLAUDE.md constitution created — cross-repo rules only, under 200 lines, references sub-repo CLAUDE.md files
+- [x] **FOUND-03**: Root CLAUDE.md constitution created — cross-service routing rules only (single repo, three services), under 200 lines, references per-service CLAUDE.md files
 - [x] **FOUND-04**: `ai-platform/CLAUDE.md` created — NestJS/BE-specific context and path restrictions
 - [x] **FOUND-05**: `ai-platform-fe/CLAUDE.md` created — React/FE-specific context and path restrictions
 - [x] **FOUND-06**: Each task scoped to max ~10 minutes of execution time — TeamLead enforces atomic, focused task size
@@ -41,9 +41,9 @@
 
 ### Kanban UI
 
-- [ ] **KANBAN-01**: Board displays six status columns — `readyForDevelop / inProgress / inReview / inTesting / forTeamLeadCheck / Done`
-- [ ] **KANBAN-02**: Auto-refresh via SSE — task cards update live without page refresh as agents write task files
-- [ ] **KANBAN-03**: Task card shows: title, complexity (1-10), repo (FE/BE/both), epic name
+- [x] **KANBAN-01**: Board displays six status columns — `readyForDevelop / inProgress / inReview / inTesting / forTeamLeadCheck / Done`
+- [x] **KANBAN-02**: Auto-refresh via SSE — task cards update live without page refresh as agents write task files
+- [x] **KANBAN-03**: Task card shows: title, complexity (1-10), repo (FE/BE/both), epic name
 - [x] **KANBAN-04**: Drag-and-drop status override — user can manually move a card between columns; writes updated status to task file frontmatter
 - [x] **KANBAN-05**: Stop task and commit — user can stop a running task and commit its current code changes to a branch (no PR created)
 
@@ -73,6 +73,7 @@
 | Cloud Kanban deployment | Dev tool only; local server is sufficient |
 | CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS | Active bugs #30703, #29441; one-team-at-a-time limit |
 | isolation: worktree for FE/BE separation | Confirmed monorepo bug #39886; system prompt isolation is sufficient |
+| Splitting into separate repos per service | Single repo chosen — enables one root pre-commit hook to run scoped lint/test across all three services and keeps `.planning/` tree authoritative for the whole project |
 
 ## Traceability
 
@@ -101,9 +102,9 @@
 | PIPE-02 | Phase 4 | Pending |
 | PIPE-03 | Phase 4 | Pending |
 | KANBAN-05 | Phase 5 | Complete |
-| KANBAN-01 | Phase 6 | Pending |
-| KANBAN-02 | Phase 6 | Pending |
-| KANBAN-03 | Phase 6 | Pending |
+| KANBAN-01 | Phase 6 | Complete |
+| KANBAN-02 | Phase 6 | Complete |
+| KANBAN-03 | Phase 6 | Complete |
 | KANBAN-04 | Phase 6 | Complete |
 
 **Coverage:**

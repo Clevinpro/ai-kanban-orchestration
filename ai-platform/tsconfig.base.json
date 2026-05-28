@@ -1,0 +1,28 @@
+{
+  "compileOnSave": false,
+  "compilerOptions": {
+    "baseUrl": ".",
+    "rootDir": ".",
+    "sourceMap": true,
+    "declaration": false,
+    "moduleResolution": "node",
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "importHelpers": true,
+    "target": "es2015",
+    "module": "esnext",
+    "lib": ["es2020", "dom"],
+    "strict": true,
+    "skipLibCheck": true,
+    "skipDefaultLibCheck": true,
+    "paths": {
+      "@app/*": ["./apps/*/src"],
+      "@api-gateway/*": ["./apps/api-gateway/src/*"],
+      "@libs/*": ["./libs/*/src/index.ts"],
+      "@ai-platform/shared": ["./libs/shared/src/index.ts"],
+      "@ai-platform/kafka": ["./libs/kafka/src/index.ts"],
+      "@ai-platform/database": ["./libs/database/src/index.ts"]
+    }
+  },
+  "exclude": ["node_modules", "tmp"]
+}

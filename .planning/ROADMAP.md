@@ -2,7 +2,7 @@
 
 ## Overview
 
-This roadmap builds a Claude Code multi-agent development automation system on top of an existing Nx monorepo. Starting with the file schema and CLAUDE.md layering that every other phase depends on, the system grows phase-by-phase: TeamLead orchestration skills come next, followed by the sub-agent library and Kanban server (parallelizable), then full end-to-end pipeline integration, and finally the live Kanban UI. Each phase delivers a coherent, verifiable capability before the next begins.
+This roadmap builds a Claude Code multi-agent development automation system inside a single repository containing three co-located services (`ai-platform` BE, `ai-platform-fe` FE, `kanban-server` dev tool). Starting with the file schema and CLAUDE.md layering that every other phase depends on, the system grows phase-by-phase: TeamLead orchestration skills come next, followed by the sub-agent library and Kanban server (parallelizable), then full end-to-end pipeline integration, and finally the live Kanban UI. Each phase delivers a coherent, verifiable capability before the next begins.
 
 ## Phases
 

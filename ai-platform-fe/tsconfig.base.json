@@ -1,0 +1,47 @@
+{
+  "compileOnSave": false,
+  "compilerOptions": {
+    "rootDir": ".",
+    "strict": true,
+    "noImplicitOverride": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "sourceMap": true,
+    "declaration": false,
+    "moduleResolution": "node",
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "importHelpers": true,
+    "target": "es2015",
+    "module": "esnext",
+    "lib": [
+      "es2020",
+      "dom"
+    ],
+    "skipLibCheck": true,
+    "skipDefaultLibCheck": true,
+    "paths": {
+      "auth/Module": [
+        "./apps/auth/src/remote-entry.ts"
+      ],
+      "chat/Module": [
+        "./apps/chat/src/remote-entry.ts"
+      ],
+      "docs/Module": [
+        "./apps/docs/src/remote-entry.ts"
+      ],
+      "@libs/ui": [
+        "./libs/ui/src/index.ts"
+      ],
+      "@libs/api": [
+        "./libs/api/src/index.ts"
+      ],
+      "@libs/store": [
+        "./libs/store/src/index.ts"
+      ]
+    }
+  },
+  "exclude": [
+    "node_modules",
+    "tmp"
+  ]
+}

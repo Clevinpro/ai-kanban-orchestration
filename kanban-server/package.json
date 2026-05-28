@@ -6,11 +6,18 @@
     "start": "node index.js",
     "dev": "npm run dev --prefix client",
     "build": "npm run build --prefix client",
-    "preview": "npm run preview --prefix client"
+    "preview": "npm run preview --prefix client",
+    "lint": "eslint index.js \"test/**/*.js\"",
+    "test": "node --test \"test/**/*.test.js\""
   },
   "dependencies": {
     "express": "5.2.1",
     "chokidar": "3.6.0",
     "js-yaml": "4.1.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.8.0",
+    "eslint": "^9.8.0",
+    "globals": "^15.0.0"
   }
 }

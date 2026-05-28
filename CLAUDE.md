@@ -4,7 +4,7 @@ Multi-agent development automation system. A TeamLead agent reads a SPEC.md, bre
 
 ## Repos
 
-This workspace contains two independent sub-repos:
+Single repository, three services co-located at workspace root:
 
 - **`ai-platform/`** — backend services (api-gateway, auth-service, ai-service)
   - Agent context: `ai-platform/CLAUDE.md`
@@ -13,6 +13,10 @@ This workspace contains two independent sub-repos:
 - **`ai-platform-fe/`** — frontend apps (shell, auth, chat, docs MFEs)
   - Agent context: `ai-platform-fe/CLAUDE.md`
   - Conventions skill: `ai-platform-fe/.claude/skills/fe-conventions/SKILL.md`
+
+- **`kanban-server/`** — standalone Express + SSE dev-tool server for the Kanban UI
+  - Plain CommonJS Node.js, no Nx, no TypeScript
+  - Lives outside the Nx workspace at the repo root
 
 ## Task Files
 
@@ -29,5 +33,14 @@ This workspace contains two independent sub-repos:
 
 - **Before editing `ai-platform/` code:** load `ai-platform/CLAUDE.md` first
 - **Before editing `ai-platform-fe/` code:** load `ai-platform-fe/CLAUDE.md` first
-- **Never edit across both repos in a single task** — tasks are `repo: be` or `repo: fe`, never both
+- **Before editing `kanban-server/` code:** treat as standalone Node.js service — no Nx, no shared deps with the other two
+- **Never edit across multiple services in a single task** — tasks are `repo: be`, `repo: fe`, or `repo: kanban`, never combined
 - **Each task executes in a fresh context window** — do not assume state from previous tasks
+
+## Commit Hooks
+
+Root-level Husky pre-commit runs scoped lint + tests per service based on staged file paths:
+
+- Staged files under `ai-platform/` → `nx affected -t lint test` inside `ai-platform/`
+- Staged files under `ai-platform-fe/` → `nx affected -t lint test` inside `ai-platform-fe/`
+- Staged files under `kanban-server/` → `npm run lint && npm test` inside `kanban-server/`

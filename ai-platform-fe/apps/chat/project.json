@@ -1,0 +1,24 @@
+{
+  "name": "chat",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "apps/chat/src",
+  "projectType": "application",
+  "tags": [],
+  "targets": {
+    "test": {
+      "executor": "@nx/vitest:test",
+      "outputs": [
+        "{workspaceRoot}/coverage/apps/chat"
+      ],
+      "options": {
+        "config": "apps/chat/vitest.config.ts",
+        "reportsDirectory": "coverage/apps/chat"
+      }
+    },
+    "serve": {
+      "options": {
+        "port": 3002
+      }
+    }
+  }
+}

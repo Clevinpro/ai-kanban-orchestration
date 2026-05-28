@@ -1,6 +1,12 @@
-node_modules/
+**/node_modules/**
 .DS_Store
 .nx/
-ai-platform/**
-ai-platform-fe/**
-kanban-server/public/
+.vscode/
+
+# Obsidian vault — exclude transient workspace state and trash; keep app.json tracked
+docs/obsidian-vault/.obsidian/workspace.json
+docs/obsidian-vault/.obsidian/workspace-mobile.json
+docs/obsidian-vault/.trash/
+
+
+.env

@@ -16,9 +16,12 @@ const TaskCard = React.forwardRef(({ task }, ref) => (
     </div>
     <div className="flex items-center gap-1 flex-wrap">
       <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${repoBadge(task.repo)}`}>
-        {task.repo.toUpperCase()}
+        {(task.repo ?? '').toUpperCase()}
       </span>
-      <span className="text-gray-500 truncate flex-1">{task.epic}</span>
+      <span className="text-gray-500 truncate flex-1">
+        {task.epic}
+        <span className="text-gray-400 ml-1">#{parseInt((task.id || '').replace(/\D/g, ''), 10) || ''}</span>
+      </span>
       <span className="ml-auto text-gray-400 font-mono">{task.complexity}</span>
     </div>
   </div>

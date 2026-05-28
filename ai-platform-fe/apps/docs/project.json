@@ -1,0 +1,22 @@
+{
+  "name": "docs",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "apps/docs/src",
+  "projectType": "application",
+  "tags": [],
+  "targets": {
+    "test": {
+      "executor": "@nx/vitest:test",
+      "outputs": ["{workspaceRoot}/coverage/apps/docs"],
+      "options": {
+        "config": "apps/docs/vitest.config.ts",
+        "reportsDirectory": "coverage/apps/docs"
+      }
+    },
+    "serve": {
+      "options": {
+        "port": 3003
+      }
+    }
+  }
+}

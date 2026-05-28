@@ -1,0 +1,1 @@
+export const KAFKA_MODULE_CONFIG = Symbol('KAFKA_MODULE_CONFIG');

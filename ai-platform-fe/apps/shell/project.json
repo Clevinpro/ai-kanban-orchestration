@@ -1,0 +1,22 @@
+{
+  "name": "shell",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "apps/shell/src",
+  "projectType": "application",
+  "tags": [],
+  "targets": {
+    "test": {
+      "executor": "@nx/vitest:test",
+      "outputs": ["{workspaceRoot}/coverage/apps/shell"],
+      "options": {
+        "config": "apps/shell/vitest.config.ts",
+        "reportsDirectory": "coverage/apps/shell"
+      }
+    },
+    "serve": {
+      "options": {
+        "port": 3000
+      }
+    }
+  }
+}
