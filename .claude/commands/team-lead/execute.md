@@ -338,6 +338,10 @@ If a candidate is found:
 
 If no candidate is found:
 - Print `[Auto-next] No more readyForDevelop tasks in epic <epic>. All done.`
+- Check whether **every** task in the epic is now `done` (grep `^status:` across `.planning/work/<epic>/TASK-*.md`). If all are `done`, print:
+  ```
+  All tasks in <epic> are done. Run the epic acceptance gate: /team-lead:test <epic>
+  ```
 - Stop.
 
 ---

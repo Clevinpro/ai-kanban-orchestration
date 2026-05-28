@@ -8,6 +8,8 @@ epic: test-pipeline
 complexity: 1
 created-at: 2026-05-25T00:00:00.000Z
 updated-at: 2026-05-25T00:00:00.000Z
+started-at: 2026-05-25T00:00:00.000Z
+completed-at: 2026-05-28T21:44:12+03:00
 ---
 
 ## Description

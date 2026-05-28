@@ -8,6 +8,8 @@ epic: obsidian-integration
 complexity: 4
 created-at: 2026-05-26T00:00:00.000Z
 updated-at: 2026-05-27T08:03:33.000Z
+started-at: 2026-05-26T00:00:00.000Z
+completed-at: 2026-05-28T21:44:12+03:00
 spec: .planning/work/obsidian-integration/SPEC.md
 ---
 

@@ -42,12 +42,7 @@ function parseTaskFile(filePath) {
     const content = fs.readFileSync(filePath, 'utf8');
     const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
     if (!fmMatch) return null; // no frontmatter — skip malformed files
-    const task = yaml.load(fmMatch[1]);
-    if (task && task.status === 'done') {
-      const mtime = fs.statSync(filePath).mtime;
-      task._completedAt = mtime.toISOString();
-    }
-    return task;
+    return yaml.load(fmMatch[1]);
   } catch {
     return null; // malformed YAML — skip per Claude's Discretion (T-05-09)
   }

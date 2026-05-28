@@ -8,6 +8,8 @@ epic: hybrid-rag-search
 complexity: 5
 created-at: 2026-05-28T00:00:00Z
 updated-at: 2026-05-28T00:00:00Z
+started-at: 2026-05-28T00:00:00Z
+completed-at: 2026-05-28T21:44:12+03:00
 spec: .planning/work/hybrid-rag-search/SPEC.md
 ---
 

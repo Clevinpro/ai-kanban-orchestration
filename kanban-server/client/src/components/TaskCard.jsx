@@ -6,9 +6,9 @@ function repoBadge(repo) {
   return 'bg-gray-100 text-gray-700';
 }
 
-function formatDuration(createdAt, updatedAt) {
-  if (!createdAt || !updatedAt) return null;
-  const ms = new Date(updatedAt) - new Date(createdAt);
+function formatDuration(startedAt, completedAt) {
+  if (!startedAt || !completedAt) return null;
+  const ms = new Date(completedAt) - new Date(startedAt);
   if (isNaN(ms) || ms < 0) return null;
   const totalMin = Math.floor(ms / 60000);
   const days = Math.floor(totalMin / 1440);
@@ -16,15 +16,26 @@ function formatDuration(createdAt, updatedAt) {
   const mins = totalMin % 60;
   if (days > 0) return `${days}d ${hours}h`;
   if (hours > 0) return `${hours}h ${mins}m`;
-  return `${mins}m`;
+  return `${totalMin < 1 ? '< 1' : mins}m`;
+}
+
+const USER_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+function fmtDate(iso) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (isNaN(d)) return null;
+  return d.toLocaleString([], { timeZone: USER_TZ, month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 const TaskCard = React.forwardRef(({ task, isDone }, ref) => {
-  const duration = isDone ? formatDuration(task['created-at'], task['_completedAt'] || task['updated-at']) : null;
+  const startedAt = task['started-at'];
+  const completedAt = task['completed-at'];
+  const duration = isDone ? formatDuration(startedAt, completedAt) : null;
   return (
     <div
       ref={ref}
-      className="bg-white rounded-md shadow-sm p-2 mb-1.5 text-xs flex flex-col"
+      className={`bg-white rounded-md shadow-sm p-2 mb-1.5 text-xs flex flex-col${isDone ? ' min-h-[180px]' : ''}`}
     >
       <div className="font-medium text-gray-800 leading-snug text-sm mb-[5px]">
         {task.title}
@@ -44,12 +55,16 @@ const TaskCard = React.forwardRef(({ task, isDone }, ref) => {
           {task.complexity}
         </span>
       </div>
-      {isDone && duration && (
-        <div className="mt-1.5 flex items-center gap-1 text-[10px] text-emerald-600 font-medium">
-          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <circle cx="12" cy="12" r="10" /><path d="M12 6v6l4 2" />
-          </svg>
-          {duration}
+      {isDone && (startedAt || completedAt) && (
+        <div className="mt-2 text-[10px] text-gray-400 flex items-center gap-1.5 flex-wrap">
+          {startedAt && <span>▶ {fmtDate(startedAt)}</span>}
+          {startedAt && completedAt && <span className="text-gray-300">→</span>}
+          {completedAt && (
+            <span>
+              ✓ {fmtDate(completedAt)}
+              {duration && <span className="text-emerald-600 font-medium ml-1">({duration})</span>}
+            </span>
+          )}
         </div>
       )}
     </div>

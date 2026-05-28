@@ -8,6 +8,8 @@ epic: vault-knowledge-base
 complexity: 2
 created-at: 2026-05-28T00:00:00Z
 updated-at: 2026-05-28T00:00:00Z
+started-at: 2026-05-28T00:00:00Z
+completed-at: 2026-05-28T21:44:12+03:00
 spec: .planning/work/vault-knowledge-base/SPEC.md
 ---
 

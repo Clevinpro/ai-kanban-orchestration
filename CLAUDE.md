@@ -28,6 +28,11 @@ Single repository, three services co-located at workspace root:
 
 - `/team-lead:plan <SPEC.md>` — Break a spec into TASK-XXX.md files for human review
 - `/team-lead:execute <TASK-ID>` — Run the full automated pipeline for one task
+- `/team-lead:test <epic-name>` — Epic-level acceptance gate: runs after all tasks are `done`, verifies every SPEC.md acceptance criterion holistically, writes `TEST-REPORT.md`
+
+## Task Ordering
+
+Tasks run **sequentially within an epic**: a task can only transition `readyForDevelop → inProgress` once the previous task (next-lower `TASK-NNN` in the same epic directory) is `done`. Enforced by the `task-state-guard.js` PreToolUse hook.
 
 ## Routing Rules
 
