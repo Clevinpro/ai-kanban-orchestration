@@ -15,7 +15,7 @@ import { mkdtemp, rm, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import { extname, join } from 'path';
 import { KnowledgeService } from '../knowledge/knowledge.service';
-import { DOCUMENT_TYPE, DocumentNotes, DocumentService } from './document.service';
+import { DocumentNotes, DocumentService } from './document.service';
 
 type UploadDocumentBody = {
   title?: string;
@@ -33,6 +33,18 @@ export class DocumentController {
   @Get('notes')
   async getDocumentNotes(): Promise<DocumentNotes[]> {
     return this.documentService.getDocumentationNotes();
+  }
+
+  @Post('reindex')
+  @HttpCode(HttpStatus.OK)
+  async reindexDocuments(): Promise<{ documents: number; chunks: number; failed: number }> {
+    this.logger.log('Reindex request received', 'DocumentController');
+    const result = await this.documentService.reindexAll();
+    this.logger.log(
+      `Reindex complete: documents=${result.documents}, chunks=${result.chunks}, failed=${result.failed}`,
+      'DocumentController',
+    );
+    return result;
   }
 
   @Post('upload')
@@ -66,28 +78,19 @@ export class DocumentController {
         `Upload started: file="${file.originalname}", title="${title}"`,
         'DocumentController',
       );
-      const result = await this.documentService.uploadDocument(
-        tempFilePath,
-        title,
-        file.originalname,
-      );
+      const result = await this.documentService.uploadDocument(tempFilePath, title);
       this.logger.log(
         `Upload finished: documentId=${result.documentId}, chunks=${result.chunksCount}`,
         'DocumentController',
       );
 
-      if (result.type === DOCUMENT_TYPE.DOCUMENTATION) {
-        void this.knowledgeService
-          .generateDocNotes(result.documentId)
-          .then(() => this.knowledgeService.refreshGuideSummary(result.documentId))
-          .catch((error: unknown) => {
-            this.logger.error(
-              error instanceof Error ? error.message : String(error),
-              error instanceof Error ? error.stack : undefined,
-              'DocumentController',
-            );
-          });
-      }
+      void this.knowledgeService.generateDocNotes(result.documentId).catch((error: unknown) => {
+        this.logger.error(
+          error instanceof Error ? error.message : String(error),
+          error instanceof Error ? error.stack : undefined,
+          'DocumentController',
+        );
+      });
 
       return { documentId: result.documentId, chunksCount: result.chunksCount };
     } finally {

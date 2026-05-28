@@ -81,7 +81,7 @@ The capability detector logic already exists in `AiService` — only the data so
 
 | File | Remove |
 |------|--------|
-| `schema.prisma` | `enum DocumentType`, `type` field on `Document` model |
+| `ai-platform/libs/database/prisma/schema.prisma` | `enum DocumentType`, `type` field on `Document` model |
 | `document.service.ts` | `DOCUMENT_TYPE` const, `DocumentTypeValue` type, `getDocumentType()`, GUIDE branch in `upsertDocument`, `type` param in `insertDocument` and `upsertDocument`, `type` in `uploadDocument` return |
 | `knowledge.service.ts` | `refreshGuideSummary()` + `buildGuideSummaryPrompt()` |
 | `document.controller.ts` | `if (result.type === DOCUMENTATION)` guard |
@@ -98,7 +98,7 @@ The capability detector logic already exists in `AiService` — only the data so
 
 ### Migration
 
-**File:** `prisma/migrations/<timestamp>_remove_document_type/migration.sql`
+**File:** `ai-platform/libs/database/prisma/migrations/<timestamp>_remove_document_type/migration.sql`
 
 ```sql
 -- Step 1: delete GUIDE documents (FK cascade removes their chunks)

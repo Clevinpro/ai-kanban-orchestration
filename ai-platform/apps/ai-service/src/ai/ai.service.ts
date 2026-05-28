@@ -1,8 +1,6 @@
-import { PrismaService } from '@ai-platform/database';
 import { AiStatusStage, ChatMessage, LoggerService } from '@ai-platform/shared';
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
-import { BehaviorSubject, Observable, from, of } from 'rxjs';
+import { BehaviorSubject, Observable, from } from 'rxjs';
 import { switchMap, tap } from 'rxjs/operators';
 import { ConversationService } from '../conversation/conversation.service';
 import { SearchService, SimilaritySearchResult } from '../search/search.service';
@@ -18,19 +16,15 @@ type ProcessMessageOptions = {
   onStatus?: (stage: AiStatusStage, message: string) => void;
 };
 
-type GuideAnswerSource = {
-  summary: string | null;
-  content: string;
-};
-
 @Injectable()
 export class AiService {
+  private static readonly CAPABILITY_VAULT_PREFIX = 'docs/obsidian-vault/project/';
+
   constructor(
     private readonly searchService: SearchService,
     private readonly factory: AiProviderFactory,
     private readonly conversationService: ConversationService,
     private readonly logger: LoggerService,
-    private readonly prismaService: PrismaService,
     private readonly capabilityDetector: CapabilityDetectorService,
   ) {}
 
@@ -49,9 +43,7 @@ export class AiService {
       switchMap((isCapability) => {
         if (isCapability) {
           return from(this.answerCapabilityQuery(payload, emitStatus)).pipe(
-            switchMap((answer) =>
-              answer === null ? this.runRagFlow(payload, emitStatus) : of(answer),
-            ),
+            switchMap((obs) => obs),
           );
         }
         return this.runRagFlow(payload, emitStatus);
@@ -110,37 +102,35 @@ export class AiService {
   private async answerCapabilityQuery(
     payload: AiRequestPayload,
     emitStatus: (stage: AiStatusStage, message: string) => void,
-  ): Promise<string | null> {
-    const [guide] = await this.prismaService.$queryRaw<GuideAnswerSource[]>(
-      Prisma.sql`
-        SELECT "summary", "content"
-        FROM "documents"
-        WHERE "type" = 'GUIDE'::"DocumentType"
-        ORDER BY "created_at" ASC
-        LIMIT 1
-      `,
+  ): Promise<Observable<string>> {
+    const provider = this.factory.getProvider();
+
+    emitStatus('rag_search', 'Searching relevant context...');
+    const chunks = await this.searchService.similaritySearch(
+      payload.message,
+      6,
+      AiService.CAPABILITY_VAULT_PREFIX,
     );
 
-    if (!guide) {
-      this.logger.warn('Capability query guide not found, falling back to RAG', 'AiService');
-      return null;
-    }
+    this.logger.log(
+      `Capability query chunks: count=${chunks.length}, prefix=${AiService.CAPABILITY_VAULT_PREFIX}`,
+      'AiService',
+    );
+    emitStatus(
+      'rag_found',
+      chunks.length > 0 ? `Found ${chunks.length} context chunks` : 'No relevant context found',
+    );
 
-    const answer = guide.summary ?? guide.content;
-    emitStatus('save_message', 'Saving user message...');
-    if (payload.conversationId) {
-      await this.conversationService.saveMessage({
-        conversationId: payload.conversationId,
-        role: 'user',
-        content: payload.message,
-      });
-    }
+    const systemPrompt = await this.loadSystemPrompt(chunks);
+    emitStatus('prompt_build', 'Preparing prompt...');
 
-    emitStatus('save_response', 'Saving assistant response...');
-    await this.persistAssistantMessage(payload.conversationId, answer);
-    this.logger.log('Capability query answered from guide summary', 'AiService');
-
-    return answer;
+    return this.buildAndStream(
+      provider,
+      payload.message,
+      systemPrompt,
+      payload.conversationId,
+      emitStatus,
+    );
   }
 
   private async loadSystemPrompt(chunks: SimilaritySearchResult[]): Promise<string> {

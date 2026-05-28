@@ -8,7 +8,6 @@ import { join, resolve } from 'path';
 import { DocumentService } from '../document/document.service';
 
 const VAULT_PREFIX = 'docs/obsidian-vault/';
-const VAULT_GLOB = `${VAULT_PREFIX}**/*.md`;
 
 // Sentinel used to protect digit-hyphen-digit sequences during title derivation
 // so that date segments (e.g. "2026-05-26") survive the word split.
@@ -77,7 +76,9 @@ export class VaultSyncService implements OnModuleInit {
   private assertWithinVault(filePath: string): void {
     const vaultRoot = this.vaultRoot;
     // Resolve relative paths against vault root; absolute paths resolve as-is.
-    const resolved = filePath.startsWith('/') ? resolve(filePath) : resolve(process.cwd(), filePath);
+    const resolved = filePath.startsWith('/')
+      ? resolve(filePath)
+      : resolve(process.cwd(), filePath);
 
     if (!resolved.startsWith(vaultRoot + '/') && resolved !== vaultRoot) {
       throw new BadRequestException(
@@ -143,7 +144,7 @@ export class VaultSyncService implements OnModuleInit {
         `VaultSyncService: indexing new file "${title}" (${storedPath})`,
         'VaultSyncService',
       );
-      const result = await this.documentService.uploadDocument(storedPath, title, title);
+      const result = await this.documentService.uploadDocument(storedPath, title);
       // Only count genuinely new documents toward the indexed total.
       this.indexed += 1;
       return { documentId: result.documentId, chunksCount: result.chunksCount };
@@ -158,7 +159,7 @@ export class VaultSyncService implements OnModuleInit {
         'VaultSyncService',
       );
 
-      const result = await this.documentService.uploadDocument(storedPath, title, title);
+      const result = await this.documentService.uploadDocument(storedPath, title);
 
       // Upload succeeded — now atomically delete the old chunks and document row.
       await this.prismaService.$transaction([
@@ -210,7 +211,7 @@ export class VaultSyncService implements OnModuleInit {
     const relative =
       prefixIndex !== -1
         ? filePath.slice(prefixIndex + VAULT_PREFIX.length)
-        : filePath.split('/').pop() ?? filePath;
+        : (filePath.split('/').pop() ?? filePath);
 
     // Remove .md extension.
     const withoutExt = relative.endsWith('.md') ? relative.slice(0, -3) : relative;

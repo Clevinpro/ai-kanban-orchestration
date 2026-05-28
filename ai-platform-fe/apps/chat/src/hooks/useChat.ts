@@ -34,6 +34,7 @@ export function useChat(conversationId: string | null, options?: UseChatOptions)
     conversationId: string;
     assistantContent: string;
   } | null>(null);
+  const pendingResponseSecondsRef = useRef<number | undefined>(undefined);
 
   const effectiveConversationId = conversationId ?? localConversationId;
 
@@ -85,24 +86,36 @@ export function useChat(conversationId: string | null, options?: UseChatOptions)
       const pendingAssistant = prev.find(
         (msg) => msg.role === 'assistant' && msg.content.trim().length === 0,
       );
-      if (inFlightRef.current && pendingAssistant) {
-        return [...conversationBundle.messages, pendingAssistant];
+      const baseMessages =
+        inFlightRef.current && pendingAssistant
+          ? [...conversationBundle.messages, pendingAssistant]
+          : conversationBundle.messages;
+
+      const savedSeconds = pendingResponseSecondsRef.current;
+      if (typeof savedSeconds === 'number') {
+        pendingResponseSecondsRef.current = undefined;
+        const lastAssistantIdx = baseMessages.reduce(
+          (last, m, i) => (m.role === 'assistant' ? i : last),
+          -1,
+        );
+        if (
+          lastAssistantIdx >= 0 &&
+          typeof baseMessages[lastAssistantIdx].responseSeconds !== 'number'
+        ) {
+          const result = [...baseMessages];
+          result[lastAssistantIdx] = { ...result[lastAssistantIdx], responseSeconds: savedSeconds };
+          return result;
+        }
       }
-      return conversationBundle.messages;
+
+      return baseMessages;
     });
   }, [conversationId, conversationBundle]);
 
-  const rememberConversationId = useCallback(
-    (nextConversationId: string) => {
-      setLocalConversationId((prev) => prev ?? nextConversationId);
-      onConversationIdRef.current?.(nextConversationId);
-      void queryClient.invalidateQueries({ queryKey: queryKeys.conversations.all });
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.conversations.one(nextConversationId),
-      });
-    },
-    [queryClient],
-  );
+  const rememberConversationId = useCallback((nextConversationId: string) => {
+    setLocalConversationId((prev) => prev ?? nextConversationId);
+    onConversationIdRef.current?.(nextConversationId);
+  }, []);
 
   const connectStream = useCallback(
     (convIdForFilter: string | null, pendingAssistantId: string): Promise<void> => {
@@ -167,14 +180,21 @@ export function useChat(conversationId: string | null, options?: UseChatOptions)
         onComplete: (resolvedConvId) => {
           cancelStatusQueue();
           setMessages((prev) =>
-            prev.map((msg) =>
-              msg.id === pendingAssistantId
-                ? { ...msg, status: undefined, responseSeconds: getElapsedSeconds(msg.createdAt) }
-                : msg,
-            ),
+            prev.map((msg) => {
+              if (msg.id !== pendingAssistantId) return msg;
+              const responseSeconds = getElapsedSeconds(msg.createdAt);
+              pendingResponseSecondsRef.current = responseSeconds;
+              return { ...msg, status: undefined, responseSeconds };
+            }),
           );
           clearPendingStream(resolvedConvId);
           finishStream();
+          void queryClient.invalidateQueries({ queryKey: queryKeys.conversations.all });
+          if (resolvedConvId) {
+            void queryClient.invalidateQueries({
+              queryKey: queryKeys.conversations.one(resolvedConvId),
+            });
+          }
         },
 
         onError: (errorMessage) => {
@@ -189,7 +209,7 @@ export function useChat(conversationId: string | null, options?: UseChatOptions)
         },
       });
     },
-    [connect, disconnect, rememberConversationId, enqueueStatus, cancelStatusQueue],
+    [connect, disconnect, rememberConversationId, enqueueStatus, cancelStatusQueue, queryClient],
   );
 
   // Reconnect to an in-progress stream after a page reload.

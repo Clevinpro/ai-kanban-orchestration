@@ -34,7 +34,7 @@ export default function Board({ tasks, dispatch, autoRun, setAutoRun }) {
     fetch('/tasks/' + taskEpic + '/' + taskId + '/status', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: newStatus, autoNext: newStatus === 'inProgress' && autoRun }),
+      body: JSON.stringify({ status: newStatus }),
     }).then(function(res) {
       if (!res.ok) dispatch({ type: 'DRAG_REVERT', taskId, taskEpic, originalStatus });
     }).catch(function() {
@@ -70,7 +70,7 @@ export default function Board({ tasks, dispatch, autoRun, setAutoRun }) {
                           {...provided.dragHandleProps}
                           className="cursor-grab"
                         >
-                          <TaskCard task={task} />
+                          <TaskCard task={task} isDone={status === 'done'} />
                         </div>
                       )}
                     </Draggable>

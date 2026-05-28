@@ -1,5 +1,6 @@
 #!/bin/bash
-TASK_ID=$1
+TASK_ARG=$1
+TASK_ID=$(basename "$TASK_ARG")
 FLAGS=${@:2}
 WORK_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
@@ -18,5 +19,5 @@ revert_stopped() {
 
 trap 'revert_stopped' EXIT SIGHUP SIGTERM SIGINT
 
-echo "[$(date '+%H:%M:%S')] agent start: $TASK_ID $FLAGS"
-cd "$WORK_DIR" && /Users/tarasbannyi/.local/bin/claude "/team-lead:execute $TASK_ID $FLAGS"
+echo "[$(date '+%H:%M:%S')] agent start: $TASK_ARG $FLAGS"
+cd "$WORK_DIR" && /Users/tarasbannyi/.local/bin/claude "/team-lead:execute $TASK_ARG $FLAGS"

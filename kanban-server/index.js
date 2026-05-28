@@ -42,7 +42,12 @@ function parseTaskFile(filePath) {
     const content = fs.readFileSync(filePath, 'utf8');
     const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
     if (!fmMatch) return null; // no frontmatter — skip malformed files
-    return yaml.load(fmMatch[1]);
+    const task = yaml.load(fmMatch[1]);
+    if (task && task.status === 'done') {
+      const mtime = fs.statSync(filePath).mtime;
+      task._completedAt = mtime.toISOString();
+    }
+    return task;
   } catch {
     return null; // malformed YAML — skip per Claude's Discretion (T-05-09)
   }
@@ -290,14 +295,15 @@ app.patch('/tasks/:epic/:id/status', (req, res) => {
 
     if (status === 'inProgress') {
       // Don't write file — agent sets inProgress itself. Board shows it optimistically.
+      // No --auto-next: kanban autoRun handles chaining via SSE done-detection;
+      // terminal users pass --auto-next manually for same-session chaining.
       const script = path.join(__dirname, 'run-task.sh');
-      const autoNext = req.body.autoNext ? ' --auto-next' : '';
       spawn('osascript', [
         '-e', `tell application "iTerm"`,
         '-e', `  tell current window`,
         '-e', `    create tab with default profile`,
         '-e', `    tell current session`,
-        '-e', `      write text "bash '${script}' ${taskId}${autoNext}"`,
+        '-e', `      write text "bash '${script}' ${epic}/${taskId}"`,
         '-e', `    end tell`,
         '-e', `  end tell`,
         '-e', `end tell`,

@@ -88,7 +88,7 @@ export default function App() {
           fetch('/tasks/' + next.epic + '/' + next.id + '/status', {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ status: 'inProgress', autoNext: true }),
+            body: JSON.stringify({ status: 'inProgress' }),
           }).catch(() => {
             dispatch({ type: 'DRAG_REVERT', taskId: next.id, taskEpic: next.epic, originalStatus: 'readyForDevelop' });
           });

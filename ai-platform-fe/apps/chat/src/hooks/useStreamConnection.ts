@@ -38,6 +38,7 @@ export function useStreamConnection() {
     const es = streamMessage(convId ?? undefined);
     esRef.current = es;
     let streamOpened = false;
+    let conversationIdFired = false;
     let resolveReady!: () => void;
     let rejectReady!: (reason?: unknown) => void;
     const ready = new Promise<void>((res, rej) => {
@@ -63,7 +64,8 @@ export function useStreamConnection() {
       const payload = parsePayload(event);
       const resolvedConvId = payload.conversationId ?? convId;
 
-      if (resolvedConvId) {
+      if (resolvedConvId && !conversationIdFired) {
+        conversationIdFired = true;
         handlers.onConversationId(resolvedConvId);
       }
 
