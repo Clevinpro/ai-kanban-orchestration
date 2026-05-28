@@ -1,6 +1,7 @@
 import { LoggerService } from '@ai-platform/shared';
 import { Injectable, OnModuleInit } from '@nestjs/common';
-import { OllamaEmbeddingService } from '../embeddings/embeddings.service';
+import { EmbeddingProviderFactory } from '../embeddings/providers/embedding-provider.factory';
+import { EmbeddingProvider } from '../embeddings/providers/embedding-provider.interface';
 
 const CAPABILITY_QUESTIONS = [
   'що я можу зробити?',
@@ -26,9 +27,13 @@ export class CapabilityDetectorService implements OnModuleInit {
   private cachedEmbeddings: number[][] = [];
 
   constructor(
-    private readonly embeddingService: OllamaEmbeddingService,
+    private readonly embeddingProviderFactory: EmbeddingProviderFactory,
     private readonly logger: LoggerService,
   ) {}
+
+  private get embeddingService(): EmbeddingProvider {
+    return this.embeddingProviderFactory.getProvider();
+  }
 
   async onModuleInit(): Promise<void> {
     try {

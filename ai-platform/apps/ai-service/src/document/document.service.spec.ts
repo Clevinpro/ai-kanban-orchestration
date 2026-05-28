@@ -5,12 +5,15 @@ import type { ChunkResult } from './document.service';
 // Stubs — splitIntoChunks is synchronous and does not touch injected deps
 // ---------------------------------------------------------------------------
 
-const stubEmbeddings = {} as never;
+const mockEmbeddingProvider = { generateEmbedding: jest.fn(), generateBatch: jest.fn() };
+const stubEmbeddingProviderFactory = {
+  getProvider: jest.fn().mockReturnValue(mockEmbeddingProvider),
+} as never;
 const stubPrisma = {} as never;
 const stubLogger = {} as never;
 
 function makeService(): DocumentService {
-  return new DocumentService(stubEmbeddings, stubPrisma, stubLogger);
+  return new DocumentService(stubEmbeddingProviderFactory, stubPrisma, stubLogger);
 }
 
 // ---------------------------------------------------------------------------

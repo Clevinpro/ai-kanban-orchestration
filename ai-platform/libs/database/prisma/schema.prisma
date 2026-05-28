@@ -94,3 +94,11 @@ enum MessageRole {
   user
   assistant
 }
+
+model EmbeddingProviderState {
+  id        Int      @id @default(1)
+  provider  String
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@map("embedding_provider_state")
+}

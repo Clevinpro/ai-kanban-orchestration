@@ -5,7 +5,8 @@ import { Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { readFile } from 'fs/promises';
 import { extname } from 'path';
-import { OllamaEmbeddingService } from '../embeddings/embeddings.service';
+import { EmbeddingProviderFactory } from '../embeddings/providers/embedding-provider.factory';
+import { EmbeddingProvider } from '../embeddings/providers/embedding-provider.interface';
 
 export type DocumentNotes = {
   id: string;
@@ -26,10 +27,14 @@ export class DocumentService {
   private static readonly OVERLAP = 100;
 
   constructor(
-    private readonly embeddingsService: OllamaEmbeddingService,
+    private readonly embeddingProviderFactory: EmbeddingProviderFactory,
     private readonly prismaService: PrismaService,
     private readonly logger: LoggerService,
   ) {}
+
+  private get embeddings(): EmbeddingProvider {
+    return this.embeddingProviderFactory.getProvider();
+  }
 
   async uploadDocument(
     filePath: string,
@@ -52,7 +57,7 @@ export class DocumentService {
       const prefixed = chunk.section
         ? `Section: ${chunk.section}\n${chunk.content}`
         : chunk.content;
-      const embedding = await this.embeddingsService.generateEmbedding(prefixed.toLowerCase());
+      const embedding = await this.embeddings.generateEmbedding(prefixed.toLowerCase());
 
       await this.prismaService.$executeRaw(
         Prisma.sql`
@@ -123,7 +128,7 @@ export class DocumentService {
       );
       const { content, section } = chunks[i];
       const storedContent = section ? `Section: ${section}\n${content}` : content;
-      const embedding = await this.embeddingsService.generateEmbedding(storedContent.toLowerCase());
+      const embedding = await this.embeddings.generateEmbedding(storedContent.toLowerCase());
       embeddedChunks.push({ content: storedContent, embedding });
     }
 

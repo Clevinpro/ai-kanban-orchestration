@@ -35,7 +35,7 @@ export class VaultSyncService implements OnModuleInit {
 
   onModuleInit(): void {
     // Non-blocking: do not await — ai-service boots even if Ollama is unavailable.
-    void this.runStartupScan();
+    void this.runProviderCheckAndStartupScan();
   }
 
   getStatus(): { indexed: number; lastSync: string } {
@@ -43,6 +43,60 @@ export class VaultSyncService implements OnModuleInit {
       indexed: this.indexed,
       lastSync: this.lastSync ?? 'never',
     };
+  }
+
+  /**
+   * Runs provider-switch detection and then the startup vault scan.
+   * Separated from onModuleInit so the async chain is testable.
+   */
+  async runProviderCheckAndStartupScan(): Promise<void> {
+    await this.detectAndHandleProviderChange();
+    await this.runStartupScan();
+  }
+
+  /**
+   * Reads the stored embedding provider from DB. If it differs from the
+   * current EMBEDDING_PROVIDER env var, truncates the chunks table and
+   * deletes all vault document rows so the startup scan re-indexes cleanly.
+   * Always upserts the current provider name afterward.
+   */
+  async detectAndHandleProviderChange(): Promise<void> {
+    const active = (process.env['EMBEDDING_PROVIDER'] ?? 'ollama').toLowerCase();
+
+    const stored = await this.readStoredProvider();
+
+    if (stored !== null && stored !== active) {
+      this.logger.warn(
+        `Embedding provider changed: ${stored} → ${active}; truncating chunks`,
+        'VaultSyncService',
+      );
+      await this.prismaService.$executeRaw`TRUNCATE TABLE "chunks"`;
+      await this.prismaService
+        .$executeRaw`DELETE FROM "documents" WHERE "file_path" LIKE 'docs/obsidian-vault/%'`;
+    }
+
+    await this.upsertStoredProvider(active);
+  }
+
+  /**
+   * Reads the singleton provider row (id = 1). Returns null when no row exists.
+   */
+  async readStoredProvider(): Promise<string | null> {
+    const rows = await this.prismaService.$queryRaw<{ provider: string }[]>`
+      SELECT "provider" FROM "embedding_provider_state" WHERE "id" = 1 LIMIT 1
+    `;
+    return rows[0]?.provider ?? null;
+  }
+
+  /**
+   * Upserts the singleton row (id always = 1) with the active provider name.
+   */
+  async upsertStoredProvider(provider: string): Promise<void> {
+    await this.prismaService.$executeRaw`
+      INSERT INTO "embedding_provider_state" ("id", "provider", "updated_at")
+      VALUES (1, ${provider}, NOW())
+      ON CONFLICT ("id") DO UPDATE SET "provider" = ${provider}, "updated_at" = NOW()
+    `;
   }
 
   /**

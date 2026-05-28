@@ -2,7 +2,8 @@ import { PrismaService } from '@ai-platform/database';
 import { LoggerService } from '@ai-platform/shared';
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { OllamaEmbeddingService } from '../embeddings/embeddings.service';
+import { EmbeddingProviderFactory } from '../embeddings/providers/embedding-provider.factory';
+import { EmbeddingProvider } from '../embeddings/providers/embedding-provider.interface';
 import { QueryNormalizer } from './query-normalizer';
 import { rrfFuse } from './rrf';
 
@@ -24,10 +25,14 @@ interface FusedRankEntry {
 @Injectable()
 export class SearchService {
   constructor(
-    private readonly embeddingsService: OllamaEmbeddingService,
+    private readonly embeddingProviderFactory: EmbeddingProviderFactory,
     private readonly prismaService: PrismaService,
     private readonly logger: LoggerService,
   ) {}
+
+  private get embeddings(): EmbeddingProvider {
+    return this.embeddingProviderFactory.getProvider();
+  }
 
   async similaritySearch(
     query: string,
@@ -62,7 +67,7 @@ export class SearchService {
     limit: number,
     filePathPrefix?: string,
   ): Promise<SimilaritySearchResult[]> {
-    const embedding = await this.embeddingsService.generateEmbedding(query);
+    const embedding = await this.embeddings.generateEmbedding(query);
     const queryVector = `[${embedding.join(',')}]`;
 
     if (filePathPrefix) {

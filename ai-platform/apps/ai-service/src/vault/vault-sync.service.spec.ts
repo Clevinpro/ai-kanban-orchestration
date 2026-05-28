@@ -22,7 +22,8 @@ const mockLogger = {
   warn: jest.fn(),
   error: jest.fn(),
   debug: jest.fn(),
-} as never;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+} as any;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -49,8 +50,10 @@ beforeEach(() => {
   // Clear VAULT_PATH so tests use process.cwd()-relative resolution
   // (cwd in Jest = ai-platform/; absVaultPath() builds paths from there)
   delete process.env['VAULT_PATH'];
+  delete process.env['EMBEDDING_PROVIDER'];
   mockUploadDocument.mockResolvedValue({ documentId: 'doc-1', chunksCount: 3 });
   mockQueryRaw.mockResolvedValue([]);
+  mockExecuteRaw.mockResolvedValue(1);
   mock$transaction.mockResolvedValue([]);
 });
 
@@ -187,5 +190,120 @@ describe('VaultSyncService.syncFile', () => {
 
     const result = await service.syncFile(validRelPath);
     expect(result).toEqual({ documentId: 'doc-99', chunksCount: 7 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// readStoredProvider
+// ---------------------------------------------------------------------------
+
+describe('VaultSyncService.readStoredProvider', () => {
+  it('returns null when no row exists', async () => {
+    const service = makeService();
+    mockQueryRaw.mockResolvedValue([]);
+    const result = await service.readStoredProvider();
+    expect(result).toBeNull();
+  });
+
+  it('returns the stored provider name when a row exists', async () => {
+    const service = makeService();
+    mockQueryRaw.mockResolvedValue([{ provider: 'openai' }]);
+    const result = await service.readStoredProvider();
+    expect(result).toBe('openai');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// upsertStoredProvider
+// ---------------------------------------------------------------------------
+
+describe('VaultSyncService.upsertStoredProvider', () => {
+  it('calls $executeRaw to insert/update the singleton row', async () => {
+    const service = makeService();
+    await service.upsertStoredProvider('ollama');
+    expect(mockExecuteRaw).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// detectAndHandleProviderChange
+// ---------------------------------------------------------------------------
+
+describe('VaultSyncService.detectAndHandleProviderChange', () => {
+  it('does not truncate on first boot (no stored row)', async () => {
+    const service = makeService();
+    // No stored row — readStoredProvider returns null
+    mockQueryRaw.mockResolvedValue([]);
+    process.env['EMBEDDING_PROVIDER'] = 'ollama';
+
+    await service.detectAndHandleProviderChange();
+
+    // TRUNCATE and DELETE should NOT have been called — only the upsert $executeRaw
+    const truncateCalled = mockExecuteRaw.mock.calls.some((args) => {
+      const sql = String(args[0]);
+      return sql.includes('TRUNCATE');
+    });
+    expect(truncateCalled).toBe(false);
+    expect(mockLogger.warn).not.toHaveBeenCalled();
+  });
+
+  it('does not truncate when stored provider matches active provider', async () => {
+    const service = makeService();
+    mockQueryRaw.mockResolvedValue([{ provider: 'ollama' }]);
+    process.env['EMBEDDING_PROVIDER'] = 'ollama';
+
+    await service.detectAndHandleProviderChange();
+
+    const truncateCalled = mockExecuteRaw.mock.calls.some((args) => {
+      const sql = String(args[0]);
+      return sql.includes('TRUNCATE');
+    });
+    expect(truncateCalled).toBe(false);
+    expect(mockLogger.warn).not.toHaveBeenCalled();
+  });
+
+  it('truncates chunks and deletes vault docs when provider changes', async () => {
+    const service = makeService();
+    mockQueryRaw.mockResolvedValue([{ provider: 'ollama' }]);
+    process.env['EMBEDDING_PROVIDER'] = 'openai';
+
+    await service.detectAndHandleProviderChange();
+
+    const allSqlCalls = mockExecuteRaw.mock.calls.map((args) => String(args[0]));
+    expect(allSqlCalls.some((sql) => sql.includes('TRUNCATE'))).toBe(true);
+    expect(allSqlCalls.some((sql) => sql.includes('docs/obsidian-vault/%'))).toBe(true);
+  });
+
+  it('logs a warning with old → new provider names when provider changes', async () => {
+    const service = makeService();
+    mockQueryRaw.mockResolvedValue([{ provider: 'ollama' }]);
+    process.env['EMBEDDING_PROVIDER'] = 'openai';
+
+    await service.detectAndHandleProviderChange();
+
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Embedding provider changed: ollama → openai; truncating chunks'),
+      'VaultSyncService',
+    );
+  });
+
+  it('upserts the active provider after detection logic', async () => {
+    const service = makeService();
+    mockQueryRaw.mockResolvedValue([]);
+    process.env['EMBEDDING_PROVIDER'] = 'openai';
+
+    await service.detectAndHandleProviderChange();
+
+    // $executeRaw is called for the upsert
+    expect(mockExecuteRaw).toHaveBeenCalled();
+  });
+
+  it('defaults to "ollama" when EMBEDDING_PROVIDER env var is absent', async () => {
+    const service = makeService();
+    mockQueryRaw.mockResolvedValue([]);
+    delete process.env['EMBEDDING_PROVIDER'];
+
+    // Should not throw
+    await expect(service.detectAndHandleProviderChange()).resolves.toBeUndefined();
   });
 });

@@ -5,8 +5,13 @@ import type { SimilaritySearchResult } from './search.service';
 // Minimal stubs for injected dependencies
 // ---------------------------------------------------------------------------
 
-const mockEmbeddingsService = {
+const mockEmbeddingProvider = {
   generateEmbedding: jest.fn(),
+  generateBatch: jest.fn(),
+};
+
+const mockEmbeddingsService = {
+  getProvider: jest.fn().mockReturnValue(mockEmbeddingProvider),
 };
 
 const buildQueryRawMock = (rows: SimilaritySearchResult[]) => jest.fn().mockResolvedValue(rows);
@@ -146,7 +151,7 @@ describe('SearchService.lexicalSearch', () => {
 
 describe('SearchService.similaritySearch', () => {
   beforeEach(() => {
-    mockEmbeddingsService.generateEmbedding.mockResolvedValue([0.1, 0.2, 0.3]);
+    mockEmbeddingProvider.generateEmbedding.mockResolvedValue([0.1, 0.2, 0.3]);
   });
 
   afterEach(() => {
