@@ -15,4 +15,4 @@ Welcome to the project knowledge base. Use the links below to navigate.
 
 ## Epics
 
-> Epic overviews are added here as the project progresses.
+- [[epics/_MOC]]

@@ -4,7 +4,8 @@
   "scripts": {
     "lint": "nx run-many --target=lint",
     "lint:fix": "nx run-many --target=lint --fix",
-    "prepare": "husky"
+    "prepare": "husky",
+    "vault:sync": "bash scripts/sync-vault.sh"
   },
   "devDependencies": {
     "@eslint/js": "^9.8.0",

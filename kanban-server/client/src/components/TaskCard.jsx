@@ -24,9 +24,9 @@ const TaskCard = React.forwardRef(({ task, isDone }, ref) => {
   return (
     <div
       ref={ref}
-      className={`bg-white rounded-md shadow-sm p-2 mb-1.5 text-xs flex flex-col${isDone ? ' min-h-[180px]' : ''}`}
+      className="bg-white rounded-md shadow-sm p-2 mb-1.5 text-xs flex flex-col"
     >
-      <div className="font-medium text-gray-800 leading-snug mb-1 text-sm">
+      <div className="font-medium text-gray-800 leading-snug text-sm mb-[5px]">
         {task.title}
       </div>
       <div className="flex items-center gap-1 flex-wrap mt-auto">
@@ -37,7 +37,12 @@ const TaskCard = React.forwardRef(({ task, isDone }, ref) => {
           {task.epic}
           <span className="text-gray-400 ml-1">#{parseInt((task.id || '').replace(/\D/g, ''), 10) || ''}</span>
         </span>
-        <span className="ml-auto text-gray-400 font-mono">{task.complexity}</span>
+        <span className="ml-auto flex items-center gap-0.5 text-teal-500 font-mono">
+          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+          </svg>
+          {task.complexity}
+        </span>
       </div>
       {isDone && duration && (
         <div className="mt-1.5 flex items-center gap-1 text-[10px] text-emerald-600 font-medium">
