@@ -44,14 +44,37 @@ export default [
             "**/*.ts",
             "**/*.tsx",
             "**/*.cts",
-            "**/*.mts",
+            "**/*.mts"
+        ],
+        rules: {
+            "no-unused-vars": "off",
+            "@typescript-eslint/no-unused-vars": [
+                "error",
+                {
+                    "argsIgnorePattern": "^_",
+                    "varsIgnorePattern": "^_",
+                    "caughtErrorsIgnorePattern": "^_"
+                }
+            ]
+        }
+    },
+    {
+        files: [
             "**/*.js",
             "**/*.jsx",
             "**/*.cjs",
             "**/*.mjs"
         ],
-        // Override or add rules here
-        rules: {}
+        rules: {
+            "no-unused-vars": [
+                "error",
+                {
+                    "argsIgnorePattern": "^_",
+                    "varsIgnorePattern": "^_",
+                    "caughtErrorsIgnorePattern": "^_"
+                }
+            ]
+        }
     },
     {
         files: [
