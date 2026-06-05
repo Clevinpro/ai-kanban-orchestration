@@ -43,7 +43,12 @@
       "Bash(git reset *)",
       "Bash(command -v shellcheck)",
       "Bash(echo \"test\" >> /tmp/dummy-readme-test.md 2>&1; git status --short | head -3 && echo \"---DRY RUN dispatcher with README staged---\" && cp README.md README.md.bak && echo \"\" >> README.md && git add README.md && bash scripts/pre-commit-scoped.sh; ec=$?; mv README.md.bak README.md && git reset HEAD README.md > /dev/null 2>&1; echo \"exit=$ec\")",
-      "Bash(git checkout *)"
+      "Bash(git checkout *)",
+      "WebFetch(domain:docs.anthropic.com)",
+      "WebFetch(domain:cdn.openai.com)",
+      "WebFetch(domain:docs.claude.com)",
+      "WebFetch(domain:openai.github.io)",
+      "Bash(curl -s https://api.github.com/repos/__TRACKED_VAR__)"
     ]
   },
   "autoUpdates": false

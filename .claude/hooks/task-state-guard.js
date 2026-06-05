@@ -114,61 +114,11 @@ process.stdin.on('end', () => {
       deny('repo: both is not allowed. Split into separate be and fe tasks.');
     }
 
-    // 8. ALLOW path — inject updated-at / started-at / completed-at, keyed by tool_name
-    const now = localISOString();
-    let modifiedInput;
-    if (tool_name === 'Write') {
-      // Write tool: modifiedInput.content is the complete file content to write
-      let updatedContent = (tool_input.content || '').replace(/(updated-at:\s*)([^\n]+)/, `$1${now}`);
-      if (newStatus === 'inProgress' && currentStatus === 'readyForDevelop') {
-        updatedContent = updatedContent.replace(/(started-at:\s*)([^\n]+)/, `$1${now}`);
-        if (!updatedContent.match(/^started-at:/m)) {
-          updatedContent = updatedContent.replace(/(status:\s*\S+)/, `$1\nstarted-at: ${now}`);
-        }
-      }
-      if (newStatus === 'done') {
-        updatedContent = updatedContent.replace(/(completed-at:\s*)([^\n]+)/, `$1${now}`);
-        if (!updatedContent.match(/^completed-at:/m)) {
-          updatedContent = updatedContent.replace(/(status:\s*\S+)/, `$1\ncompleted-at: ${now}`);
-        }
-      }
-      modifiedInput = { content: updatedContent };
-    } else {
-      // Edit tool: expand new_string to also inject lifecycle timestamps.
-      // Normal pipeline edits only contain "status: <value>" in new_string.
-      let updatedNewString = (tool_input.new_string || '').replace(/(updated-at:\s*)([^\n]+)/, `$1${now}`);
-
-      if (newStatus === 'inProgress' && currentStatus === 'readyForDevelop') {
-        if (diskContent && diskContent.match(/^started-at:/m)) {
-          // Field exists in file (e.g. null) — replace it directly to avoid duplicate
-          fs.writeFileSync(filePath, diskContent.replace(/^(started-at:\s*).*$/m, `$1${now}`), 'utf8');
-        } else if (!updatedNewString.includes('started-at:')) {
-          // Field absent — append to new_string so Edit inserts it after status:
-          updatedNewString += `\nstarted-at: ${now}`;
-        }
-      }
-
-      if (newStatus === 'done') {
-        if (diskContent && diskContent.match(/^completed-at:/m)) {
-          // Field exists in file (e.g. null) — replace it directly
-          fs.writeFileSync(filePath, diskContent.replace(/^(completed-at:\s*).*$/m, `$1${now}`), 'utf8');
-        } else if (!updatedNewString.includes('completed-at:')) {
-          updatedNewString += `\ncompleted-at: ${now}`;
-        }
-      }
-
-      modifiedInput = { new_string: updatedNewString };
-    }
-
-    const output = {
-      hookSpecificOutput: {
-        hookEventName: 'PreToolUse',
-        permissionDecision: 'allow',
-      },
-      modifiedInput,
-    };
-
-    process.stdout.write(JSON.stringify(output));
+    // 8. ALLOW path — validation only. Lifecycle timestamps (started-at /
+    // completed-at / updated-at) are injected by the PostToolUse hook
+    // (task-timestamps.js) AFTER the edit lands, so the hook never writes the
+    // file out-of-band before the tool runs — which would desync the harness
+    // read-cache and trigger "File content has changed since it was last read".
     process.exit(0);
   } catch (e) {
     // Silent fail — never block tool execution

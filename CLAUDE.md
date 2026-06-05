@@ -29,6 +29,9 @@ Single repository, three services co-located at workspace root:
 - `/team-lead:plan <SPEC.md>` — Break a spec into TASK-XXX.md files for human review
 - `/team-lead:execute <TASK-ID>` — Run the full automated pipeline for one task
 - `/team-lead:test <epic-name>` — Epic-level acceptance gate: runs after all tasks are `done`, verifies every SPEC.md acceptance criterion holistically, writes `TEST-REPORT.md`
+  - **Verdict gating:** `IN-PROGRESS` (kanban launch marker) and `PASS` block re-launch; `FAIL` allows re-run. After `PASS`, re-run requires deleting `TEST-REPORT.md`.
+  - **Re-run after FAIL:** verifies only previously failed ACs; passed rows carry over as `PASS (carried)`. Previous report preserved as `TEST-REPORT.prev.md` by the kanban server.
+  - **On FAIL:** creates fix tasks from open ACs — one per repo (`be` and `fe` separately, never combined), next free `TASK-NNN` numbers — and immediately launches the first via the kanban server.
 
 ## Task Ordering
 

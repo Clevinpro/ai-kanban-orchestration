@@ -56,6 +56,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "env node \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/task-timestamps.js",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "Stop": [
