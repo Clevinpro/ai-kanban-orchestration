@@ -70,9 +70,7 @@ describe('VaultSyncService.deriveTitle', () => {
 
   it('project/Overview.md → "Project Overview"', () => {
     const service = makeService();
-    expect(priv(service).deriveTitle(absVaultPath('project/Overview.md'))).toBe(
-      'Project Overview',
-    );
+    expect(priv(service).deriveTitle(absVaultPath('project/Overview.md'))).toBe('Project Overview');
   });
 
   it('Index.md at vault root → "Index"', () => {
@@ -105,9 +103,7 @@ describe('VaultSyncService.deriveTitle', () => {
 describe('VaultSyncService.assertWithinVault', () => {
   it('accepts absolute path inside vault', () => {
     const service = makeService();
-    expect(() =>
-      priv(service).assertWithinVault(absVaultPath('commits/note.md')),
-    ).not.toThrow();
+    expect(() => priv(service).assertWithinVault(absVaultPath('commits/note.md'))).not.toThrow();
   });
 
   it('accepts relative path docs/obsidian-vault/...', () => {
@@ -131,9 +127,9 @@ describe('VaultSyncService.assertWithinVault', () => {
 
   it('rejects deep traversal that starts with vault prefix', () => {
     const service = makeService();
-    expect(() =>
-      priv(service).assertWithinVault('docs/obsidian-vault/../../../etc/hosts'),
-    ).toThrow(BadRequestException);
+    expect(() => priv(service).assertWithinVault('docs/obsidian-vault/../../../etc/hosts')).toThrow(
+      BadRequestException,
+    );
   });
 });
 
@@ -272,6 +268,22 @@ describe('VaultSyncService.detectAndHandleProviderChange', () => {
     const allSqlCalls = mockExecuteRaw.mock.calls.map((args) => String(args[0]));
     expect(allSqlCalls.some((sql) => sql.includes('TRUNCATE'))).toBe(true);
     expect(allSqlCalls.some((sql) => sql.includes('docs/obsidian-vault/%'))).toBe(true);
+  });
+
+  it('truncates and re-indexes when switching to lmstudio (new provider name flows through)', async () => {
+    const service = makeService();
+    mockQueryRaw.mockResolvedValue([{ provider: 'ollama' }]);
+    process.env['EMBEDDING_PROVIDER'] = 'lmstudio';
+
+    await service.detectAndHandleProviderChange();
+
+    const allSqlCalls = mockExecuteRaw.mock.calls.map((args) => String(args[0]));
+    expect(allSqlCalls.some((sql) => sql.includes('TRUNCATE'))).toBe(true);
+    expect(allSqlCalls.some((sql) => sql.includes('docs/obsidian-vault/%'))).toBe(true);
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Embedding provider changed: ollama → lmstudio; truncating chunks'),
+      'VaultSyncService',
+    );
   });
 
   it('logs a warning with old → new provider names when provider changes', async () => {

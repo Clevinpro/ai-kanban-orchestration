@@ -1,4 +1,5 @@
 import { EmbeddingProviderFactory } from './embedding-provider.factory';
+import type { LmStudioEmbeddingProvider } from './lmstudio-embedding.provider';
 import type { OllamaEmbeddingProvider } from './ollama-embedding.provider';
 import type { OpenAiEmbeddingProvider } from './openai-embedding.provider';
 
@@ -20,11 +21,13 @@ function makeFactory(providerEnv: string | undefined): {
 
   const ollamaProvider = {} as OllamaEmbeddingProvider;
   const openAiProvider = {} as OpenAiEmbeddingProvider;
+  const lmStudioProvider = {} as LmStudioEmbeddingProvider;
 
   const factory = new EmbeddingProviderFactory(
     configService,
     ollamaProvider,
     openAiProvider,
+    lmStudioProvider,
     logger,
   );
 
@@ -66,10 +69,15 @@ describe('EmbeddingProviderFactory.getProvider', () => {
     const ollamaProvider = { generateEmbedding: jest.fn() } as unknown as OllamaEmbeddingProvider;
     const openAiProvider = { generateEmbedding: jest.fn() } as unknown as OpenAiEmbeddingProvider;
 
+    const lmStudioProvider = {
+      generateEmbedding: jest.fn(),
+    } as unknown as LmStudioEmbeddingProvider;
+
     const factory = new EmbeddingProviderFactory(
       configService,
       ollamaProvider,
       openAiProvider,
+      lmStudioProvider,
       logger,
     );
     expect(factory.getProvider()).toBe(ollamaProvider);
@@ -84,13 +92,61 @@ describe('EmbeddingProviderFactory.getProvider', () => {
     const ollamaProvider = { generateEmbedding: jest.fn() } as unknown as OllamaEmbeddingProvider;
     const openAiProvider = { generateEmbedding: jest.fn() } as unknown as OpenAiEmbeddingProvider;
 
+    const lmStudioProvider = {
+      generateEmbedding: jest.fn(),
+    } as unknown as LmStudioEmbeddingProvider;
+
     const factory = new EmbeddingProviderFactory(
       configService,
       ollamaProvider,
       openAiProvider,
+      lmStudioProvider,
       logger,
     );
     expect(factory.getProvider()).toBe(openAiProvider);
+  });
+
+  it('returns LmStudioEmbeddingProvider when EMBEDDING_PROVIDER=lmstudio', () => {
+    const configService = {
+      get: <T>(key: string): T | undefined =>
+        key === 'EMBEDDING_PROVIDER' ? ('lmstudio' as unknown as T) : undefined,
+    } as never;
+    const logger = { log: jest.fn(), error: jest.fn(), debug: jest.fn() } as never;
+    const ollamaProvider = { generateEmbedding: jest.fn() } as unknown as OllamaEmbeddingProvider;
+    const openAiProvider = { generateEmbedding: jest.fn() } as unknown as OpenAiEmbeddingProvider;
+    const lmStudioProvider = {
+      generateEmbedding: jest.fn(),
+    } as unknown as LmStudioEmbeddingProvider;
+
+    const factory = new EmbeddingProviderFactory(
+      configService,
+      ollamaProvider,
+      openAiProvider,
+      lmStudioProvider,
+      logger,
+    );
+    expect(factory.getProvider()).toBe(lmStudioProvider);
+  });
+
+  it('throws when EMBEDDING_PROVIDER=lmstudio but provider is not initialised', () => {
+    const configService = {
+      get: <T>(key: string): T | undefined =>
+        key === 'EMBEDDING_PROVIDER' ? ('lmstudio' as unknown as T) : undefined,
+    } as never;
+    const logger = { log: jest.fn(), error: jest.fn(), debug: jest.fn() } as never;
+    const ollamaProvider = { generateEmbedding: jest.fn() } as unknown as OllamaEmbeddingProvider;
+    const openAiProvider = { generateEmbedding: jest.fn() } as unknown as OpenAiEmbeddingProvider;
+
+    const factory = new EmbeddingProviderFactory(
+      configService,
+      ollamaProvider,
+      openAiProvider,
+      null,
+      logger,
+    );
+    expect(() => factory.getProvider()).toThrow(
+      'LM Studio provider not initialised (EMBEDDING_PROVIDER=lmstudio)',
+    );
   });
 
   it('throws for an unknown provider value', () => {
