@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import TaskCard from './TaskCard';
+import { formatDuration, fmtDate } from '../timeUtils';
 
 const COLUMN_ORDER = [
   'readyForDevelop',
@@ -42,6 +43,38 @@ function epicFullyDone(epic, tasks) {
     }
   }
   return hasAny && !hasOpen;
+}
+
+// Epic-level start/finish across ALL columns: start = earliest started-at,
+// ready = latest completed-at (only meaningful when the epic is fully done).
+function epicTimes(epic, tasks, fullyDone) {
+  let startedAt = null;
+  let completedAt = null;
+  for (const col of COLUMN_ORDER) {
+    for (const t of tasks[col] || []) {
+      if (t.epic !== epic) continue;
+      const s = t['started-at'];
+      const c = t['completed-at'];
+      if (s && (!startedAt || new Date(s) < new Date(startedAt))) startedAt = s;
+      if (c && (!completedAt || new Date(c) > new Date(completedAt))) completedAt = c;
+    }
+  }
+  return { startedAt, completedAt: fullyDone ? completedAt : null };
+}
+
+// One "label: ▶ start → ✓ end (duration)" line for the expanded epic header.
+function TimeRow({ label, startedAt, endedAt }) {
+  if (!startedAt && !endedAt) return null;
+  const duration = formatDuration(startedAt, endedAt);
+  return (
+    <div className="flex items-center gap-1 normal-case font-normal">
+      <span className="opacity-60 w-7 flex-shrink-0">{label}</span>
+      {startedAt && <span>▶ {fmtDate(startedAt)}</span>}
+      {startedAt && endedAt && <span className="opacity-50">→</span>}
+      {endedAt && <span>✓ {fmtDate(endedAt)}</span>}
+      {duration && <span className="opacity-75 font-medium">({duration})</span>}
+    </div>
+  );
 }
 
 // Verdict badge for the epic header: spinner while the gate runs, ✓ / ✗ after.
@@ -120,7 +153,8 @@ export default function Board({ tasks, dispatch, autoRun, setAutoRun, epicTests 
                       const fullyDone = epicFullyDone(epic, tasks);
                       const epicStart = globalIndex;
                       globalIndex += epicTasks.length;
-                      const verdict = epicTests[epic];
+                      const test = epicTests[epic];
+                      const verdict = test?.verdict;
                       // IN-PROGRESS: gate running. PASS: verified — re-run only after
                       // deleting TEST-REPORT.md. FAIL stays active (re-run after fixes).
                       const testBlocked = verdict === 'IN-PROGRESS' || verdict === 'PASS';
@@ -131,15 +165,26 @@ export default function Board({ tasks, dispatch, autoRun, setAutoRun, epicTests 
                           : verdict === 'FAIL'
                             ? 'Re-run /team-lead:test (failed ACs only)'
                             : 'Run /team-lead:test ' + epic;
+                      const times = isOpen ? epicTimes(epic, tasks, fullyDone) : null;
                       return (
-                        <div key={epic} className="mb-1.5">
+                        <div
+                          key={epic}
+                          className={`mb-1.5 rounded transition-shadow duration-300 ${
+                            isOpen
+                              ? fullyDone
+                                ? 'shadow-xl shadow-green-600/40'
+                                : 'shadow-xl shadow-yellow-500/40'
+                              : 'shadow-none'
+                          }`}
+                        >
                           <div
-                            className={`w-full flex items-center gap-1.5 px-1.5 py-1 rounded text-[11px] font-semibold uppercase tracking-wide transition-colors ${
+                            className={`w-full px-1.5 py-1 ${isOpen ? 'rounded-t' : 'rounded'} text-[11px] font-semibold uppercase tracking-wide transition-colors ${
                               fullyDone
                                 ? 'bg-green-500 hover:bg-green-600 text-white'
                                 : 'bg-yellow-400 hover:bg-yellow-500 text-yellow-900'
                             }`}
                           >
+                          <div className="flex items-center gap-1.5">
                             <button
                               onClick={() => toggleEpic(epic)}
                               className="flex items-center gap-1.5 flex-1 min-w-0 uppercase"
@@ -167,20 +212,42 @@ export default function Board({ tasks, dispatch, autoRun, setAutoRun, epicTests 
                               </svg>
                             </button>
                           </div>
-                          {isOpen && epicTasks.map((task, i) => (
-                            <Draggable draggableId={task.epic + '/' + task.id} index={epicStart + i} key={task.epic + '/' + task.id}>
-                              {(provided) => (
-                                <div
-                                  ref={provided.innerRef}
-                                  {...provided.draggableProps}
-                                  {...provided.dragHandleProps}
-                                  className="cursor-grab mt-1"
-                                >
-                                  <TaskCard task={task} isDone />
-                                </div>
-                              )}
-                            </Draggable>
-                          ))}
+                          {isOpen && (times?.startedAt || test?.startedAt || test?.endedAt) && (
+                            <div className="mt-1 pt-1 border-t border-current/20 text-[10px] flex flex-col gap-0.5">
+                              <TimeRow label="Epic" startedAt={times?.startedAt} endedAt={times?.completedAt} />
+                              <TimeRow label="Test" startedAt={test?.startedAt} endedAt={test?.endedAt} />
+                            </div>
+                          )}
+                          </div>
+                          {/* grid-rows 0fr→1fr: smooth expand/collapse without JS height math */}
+                          <div
+                            className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${
+                              isOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
+                            }`}
+                          >
+                            <div
+                              className={`overflow-hidden min-h-0 rounded-b ${
+                                isOpen
+                                  ? `p-1 pt-0 bg-white border border-t-0 ${fullyDone ? 'border-green-500' : 'border-yellow-400'}`
+                                  : ''
+                              }`}
+                            >
+                              {epicTasks.map((task, i) => (
+                                <Draggable draggableId={task.epic + '/' + task.id} index={epicStart + i} key={task.epic + '/' + task.id}>
+                                  {(provided) => (
+                                    <div
+                                      ref={provided.innerRef}
+                                      {...provided.draggableProps}
+                                      {...provided.dragHandleProps}
+                                      className="cursor-grab mt-1 [&>*]:mb-0"
+                                    >
+                                      <TaskCard task={task} isDone />
+                                    </div>
+                                  )}
+                                </Draggable>
+                              ))}
+                            </div>
+                          </div>
                         </div>
                       );
                     });

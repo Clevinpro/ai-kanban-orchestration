@@ -1,31 +1,10 @@
 import React from 'react';
+import { formatDuration, fmtDate } from '../timeUtils';
 
 function repoBadge(repo) {
   if (repo === 'be') return 'bg-blue-100 text-blue-700';
   if (repo === 'fe') return 'bg-purple-100 text-purple-700';
   return 'bg-gray-100 text-gray-700';
-}
-
-function formatDuration(startedAt, completedAt) {
-  if (!startedAt || !completedAt) return null;
-  const ms = new Date(completedAt) - new Date(startedAt);
-  if (isNaN(ms) || ms < 0) return null;
-  const totalMin = Math.floor(ms / 60000);
-  const days = Math.floor(totalMin / 1440);
-  const hours = Math.floor((totalMin % 1440) / 60);
-  const mins = totalMin % 60;
-  if (days > 0) return `${days}d ${hours}h`;
-  if (hours > 0) return `${hours}h ${mins}m`;
-  return `${totalMin < 1 ? '< 1' : mins}m`;
-}
-
-const USER_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
-
-function fmtDate(iso) {
-  if (!iso) return null;
-  const d = new Date(iso);
-  if (isNaN(d)) return null;
-  return d.toLocaleString([], { timeZone: USER_TZ, month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 const TaskCard = React.forwardRef(({ task, isDone }, ref) => {
@@ -37,7 +16,10 @@ const TaskCard = React.forwardRef(({ task, isDone }, ref) => {
       ref={ref}
       className="bg-white rounded-md shadow-sm p-2 mb-1.5 text-xs flex flex-col"
     >
-      <div className="font-medium text-gray-800 leading-snug text-sm mb-[5px]">
+      <div
+        className="font-medium text-gray-800 leading-snug text-sm mb-[5px] overflow-hidden text-ellipsis"
+        title={task.title}
+      >
         {task.title}
       </div>
       <div className="flex items-center gap-1 flex-wrap mt-auto">

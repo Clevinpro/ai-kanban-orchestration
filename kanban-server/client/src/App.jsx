@@ -63,8 +63,9 @@ function boardReducer(state, action) {
 export default function App() {
   const [state, dispatch] = useReducer(boardReducer, initialState);
   const [autoRun, setAutoRun] = useState(() => localStorage.getItem('kanban-autoRun') === 'true');
-  // epic -> 'IN-PROGRESS' | 'PASS' | 'FAIL'. Fed by epic-test SSE events
-  // (initial snapshot on connect + live TEST-REPORT.md changes).
+  // epic -> { verdict: 'IN-PROGRESS' | 'PASS' | 'FAIL', startedAt, endedAt }.
+  // Fed by epic-test SSE events (initial snapshot on connect + live
+  // TEST-REPORT.md changes).
   const [epicTests, setEpicTests] = useState({});
 
   useEffect(() => {
@@ -122,7 +123,8 @@ export default function App() {
           const e = epicTotals.get(epic);
           // Skip when a gate is already running (IN-PROGRESS) or the epic already
           // passed (PASS) — the server's 409 guards cover both; this avoids the noise.
-          if (epicTests[epic] === 'IN-PROGRESS' || epicTests[epic] === 'PASS') continue;
+          const v = epicTests[epic]?.verdict;
+          if (v === 'IN-PROGRESS' || v === 'PASS') continue;
           if (e && e.total > 0 && e.done === e.total && !testedEpicsRef.current.has(epic)) {
             testedEpicsRef.current.add(epic);
             fetch('/epics/' + epic + '/test', { method: 'POST' }).catch(() => {
@@ -158,7 +160,7 @@ export default function App() {
       });
 
       es.addEventListener('epic-test', (e) => {
-        const { epic, verdict } = JSON.parse(e.data);
+        const { epic, verdict, startedAt, endedAt } = JSON.parse(e.data);
         setEpicTests((prev) => {
           if (verdict === null) {
             // TEST-REPORT.md deleted — clear the badge / unblock the button.
@@ -166,7 +168,7 @@ export default function App() {
             delete next[epic];
             return next;
           }
-          return { ...prev, [epic]: verdict };
+          return { ...prev, [epic]: { verdict, startedAt, endedAt } };
         });
       });
 

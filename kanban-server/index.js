@@ -66,6 +66,36 @@ function readTestVerdict(epic) {
 }
 
 /**
+ * Full test info for an epic: verdict + start/end timestamps.
+ * - startedAt: from the .test-started sidecar (written at kanban launch); falls
+ *   back to the report's Generated line while the marker is still IN-PROGRESS.
+ * - endedAt: the final report's Generated line (PASS/FAIL only).
+ * Returns { verdict, startedAt, endedAt } — all nullable.
+ */
+function getTestInfo(epic) {
+  let verdict = null;
+  let generated = null;
+  try {
+    const content = fs.readFileSync(path.join(WORK_DIR, epic, 'TEST-REPORT.md'), 'utf8');
+    const vm = content.match(/^Verdict:\s*(\S+)/m);
+    verdict = vm ? vm[1].toUpperCase() : null;
+    const gm = content.match(/^Generated:\s*(\S+)/m);
+    generated = gm ? gm[1] : null;
+  } catch {
+    return { verdict: null, startedAt: null, endedAt: null };
+  }
+  let startedAt = null;
+  try {
+    startedAt = fs.readFileSync(path.join(WORK_DIR, epic, '.test-started'), 'utf8').trim() || null;
+  } catch {
+    // no sidecar (manual /team-lead:test run) — fall back below
+  }
+  if (!startedAt && verdict === 'IN-PROGRESS') startedAt = generated;
+  const endedAt = verdict === 'PASS' || verdict === 'FAIL' ? generated : null;
+  return { verdict, startedAt, endedAt };
+}
+
+/**
  * Write the IN-PROGRESS marker report at test launch. /team-lead:test will
  * overwrite this file with the final PASS/FAIL report when it finishes.
  * A previous report (FAIL re-run) is preserved as TEST-REPORT.prev.md so the
@@ -78,6 +108,9 @@ function writeInProgressReport(epic) {
   if (fs.existsSync(filePath)) {
     fs.copyFileSync(filePath, path.join(WORK_DIR, epic, 'TEST-REPORT.prev.md'));
   }
+  // Sidecar persists the launch time — the final report overwrites the marker
+  // (and its Generated line), which would otherwise lose the start timestamp.
+  fs.writeFileSync(path.join(WORK_DIR, epic, '.test-started'), new Date().toISOString(), 'utf8');
   const content = [
     '# Epic Test Report — ' + epic,
     '',
@@ -177,10 +210,14 @@ function pushEvent(taskObj) {
 
 /**
  * Push an epic-test SSE event to all connected clients.
- * Payload: { epic, verdict } — verdict is IN-PROGRESS | PASS | FAIL | null (report deleted).
+ * Payload: { epic, verdict, startedAt, endedAt } — verdict is
+ * IN-PROGRESS | PASS | FAIL | null (report deleted); timestamps nullable.
  */
-function pushTestEvent(epic, verdict) {
-  const data = `event: epic-test\ndata: ${JSON.stringify({ epic, verdict })}\n\n`;
+function pushTestEvent(epic, info) {
+  const payload = info
+    ? { epic, ...info }
+    : { epic, verdict: null, startedAt: null, endedAt: null };
+  const data = `event: epic-test\ndata: ${JSON.stringify(payload)}\n\n`;
   for (const res of clients) {
     res.write(data);
   }
@@ -228,9 +265,9 @@ app.get('/events', (req, res) => {
   try {
     for (const entry of fs.readdirSync(WORK_DIR, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
-      const verdict = readTestVerdict(entry.name);
-      if (verdict) {
-        res.write(`event: epic-test\ndata: ${JSON.stringify({ epic: entry.name, verdict })}\n\n`);
+      const info = getTestInfo(entry.name);
+      if (info.verdict) {
+        res.write(`event: epic-test\ndata: ${JSON.stringify({ epic: entry.name, ...info })}\n\n`);
       }
     }
   } catch {
@@ -494,7 +531,7 @@ chokidar.watch(WORK_DIR + '/**/*.md', {
   .on('add', function (f) {
     if (path.basename(f) === 'TEST-REPORT.md') {
       const epic = path.basename(path.dirname(f));
-      return pushTestEvent(epic, readTestVerdict(epic));
+      return pushTestEvent(epic, getTestInfo(epic));
     }
     const t = parseTaskFile(f);
     if (t) pushEvent(t);
@@ -504,11 +541,11 @@ chokidar.watch(WORK_DIR + '/**/*.md', {
       // /team-lead:test overwrote the marker with the final report — push the
       // new verdict so boards unblock the run button and show PASS/FAIL.
       const epic = path.basename(path.dirname(f));
-      const verdict = readTestVerdict(epic);
+      const info = getTestInfo(epic);
       // Release the launch cooldown once the gate finished, so a manual re-run
       // right after a PASS/FAIL is not blocked for the remaining cooldown window.
-      if (verdict !== 'IN-PROGRESS') testedEpics.delete(epic);
-      return pushTestEvent(epic, verdict);
+      if (info.verdict !== 'IN-PROGRESS') testedEpics.delete(epic);
+      return pushTestEvent(epic, info);
     }
     const t = parseTaskFile(f);
     if (t) {
@@ -523,7 +560,10 @@ chokidar.watch(WORK_DIR + '/**/*.md', {
   .on('unlink', function (f) {
     if (path.basename(f) === 'TEST-REPORT.md') {
       // Report deleted — clear verdict badge and unblock the run button.
-      return pushTestEvent(path.basename(path.dirname(f)), null);
+      // Drop the start-time sidecar so a stale start never shows for the next run.
+      const epic = path.basename(path.dirname(f));
+      try { fs.unlinkSync(path.join(WORK_DIR, epic, '.test-started')); } catch { /* already gone */ }
+      return pushTestEvent(epic, null);
     }
     // Only TASK-NNN.md deletions are board events — ignore TEST-REPORT.prev.md,
     // SPEC.md and other non-task markdown files.
