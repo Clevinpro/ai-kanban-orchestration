@@ -34,6 +34,12 @@ process.stdin.on('end', () => {
     const filePath = tool_input?.file_path || tool_input?.path || '';
     if (!filePath.includes('.planning/work/') || !filePath.endsWith('.md')) process.exit(0);
 
+    // 2.5. Restore bypass: a `.restore` sentinel in the epic directory disables
+    // all validation — used to recreate accidentally deleted task files verbatim
+    // (status: done, no transition history). Flow: touch .restore → write files
+    // → rm .restore. Never leave the sentinel behind.
+    if (fs.existsSync(path.join(path.dirname(filePath), '.restore'))) process.exit(0);
+
     // 3. Extract newStatus from tool call
     let newStatus;
     if (tool_name === 'Write') {
