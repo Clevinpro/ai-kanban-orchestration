@@ -4,11 +4,9 @@ import { Module, OnModuleInit } from '@nestjs/common';
 import { ConversationService } from '../conversation/conversation.service';
 import { EmbeddingsModule } from '../embeddings/embeddings.module';
 import { SearchModule } from '../search/search.module';
+import { AiProvidersModule } from './ai-providers.module';
 import { AiService } from './ai.service';
 import { CapabilityDetectorService } from './capability-detector.service';
-import { AiProviderFactory } from './providers/ai-provider.factory';
-import { ClaudeProvider } from './providers/claude.provider';
-import { OllamaProvider } from './providers/ollama.provider';
 
 interface AiRequestPayload {
   userId: string;
@@ -17,16 +15,9 @@ interface AiRequestPayload {
 }
 
 @Module({
-  imports: [EmbeddingsModule, SearchModule],
-  providers: [
-    AiService,
-    CapabilityDetectorService,
-    ConversationService,
-    AiProviderFactory,
-    ClaudeProvider,
-    OllamaProvider,
-  ],
-  exports: [AiService],
+  imports: [EmbeddingsModule, SearchModule, AiProvidersModule],
+  providers: [AiService, CapabilityDetectorService, ConversationService],
+  exports: [AiService, AiProvidersModule],
 })
 export class AiModule implements OnModuleInit {
   constructor(
