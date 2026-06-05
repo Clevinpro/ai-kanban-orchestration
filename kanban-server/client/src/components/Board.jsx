@@ -29,11 +29,46 @@ function groupByEpic(taskList) {
   return map;
 }
 
-export default function Board({ tasks, dispatch, autoRun, setAutoRun }) {
+// An epic is fully done when it has tasks and none of them sit outside the done
+// column. Active (still-running) epics → yellow header; fully-done → green.
+function epicFullyDone(epic, tasks) {
+  let hasAny = false;
+  let hasOpen = false;
+  for (const col of COLUMN_ORDER) {
+    for (const t of tasks[col] || []) {
+      if (t.epic !== epic) continue;
+      hasAny = true;
+      if (col !== 'done') hasOpen = true;
+    }
+  }
+  return hasAny && !hasOpen;
+}
+
+// Verdict badge for the epic header: spinner while the gate runs, ✓ / ✗ after.
+function TestVerdictBadge({ verdict }) {
+  if (verdict === 'IN-PROGRESS') {
+    return (
+      <svg className="w-3 h-3 flex-shrink-0 animate-spin opacity-80" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+        <path strokeLinecap="round" d="M21 12a9 9 0 11-6.2-8.56" />
+      </svg>
+    );
+  }
+  if (verdict === 'PASS') return <span className="flex-shrink-0 opacity-80" title="Epic test: PASS">✓</span>;
+  if (verdict === 'FAIL') return <span className="flex-shrink-0 opacity-80" title="Epic test: FAIL">✗</span>;
+  return null;
+}
+
+export default function Board({ tasks, dispatch, autoRun, setAutoRun, epicTests = {} }) {
   const [openEpics, setOpenEpics] = useState({});
 
   function toggleEpic(epic) {
     setOpenEpics((prev) => ({ ...prev, [epic]: !prev[epic] }));
+  }
+
+  function runEpicTest(epic) {
+    // Server guards duplicates: 409 while TEST-REPORT.md reads IN-PROGRESS.
+    // Button state updates via the epic-test SSE event, no optimistic write needed.
+    fetch('/epics/' + epic + '/test', { method: 'POST' }).catch(() => {});
   }
 
   function handleDragEnd(result) {
@@ -82,23 +117,56 @@ export default function Board({ tasks, dispatch, autoRun, setAutoRun }) {
                     let globalIndex = 0;
                     return Object.entries(byEpic).map(([epic, epicTasks]) => {
                       const isOpen = !!openEpics[epic];
+                      const fullyDone = epicFullyDone(epic, tasks);
                       const epicStart = globalIndex;
                       globalIndex += epicTasks.length;
+                      const verdict = epicTests[epic];
+                      // IN-PROGRESS: gate running. PASS: verified — re-run only after
+                      // deleting TEST-REPORT.md. FAIL stays active (re-run after fixes).
+                      const testBlocked = verdict === 'IN-PROGRESS' || verdict === 'PASS';
+                      const testTitle = verdict === 'IN-PROGRESS'
+                        ? 'Epic test already running'
+                        : verdict === 'PASS'
+                          ? 'Epic test passed — delete TEST-REPORT.md to re-run'
+                          : verdict === 'FAIL'
+                            ? 'Re-run /team-lead:test (failed ACs only)'
+                            : 'Run /team-lead:test ' + epic;
                       return (
                         <div key={epic} className="mb-1.5">
-                          <button
-                            onClick={() => toggleEpic(epic)}
-                            className="w-full flex items-center gap-1.5 px-1.5 py-1 rounded bg-gray-200 hover:bg-gray-300 text-[11px] font-semibold text-gray-600 uppercase tracking-wide transition-colors"
+                          <div
+                            className={`w-full flex items-center gap-1.5 px-1.5 py-1 rounded text-[11px] font-semibold uppercase tracking-wide transition-colors ${
+                              fullyDone
+                                ? 'bg-green-500 hover:bg-green-600 text-white'
+                                : 'bg-yellow-400 hover:bg-yellow-500 text-yellow-900'
+                            }`}
                           >
-                            <svg
-                              className={`w-3 h-3 flex-shrink-0 transition-transform ${isOpen ? 'rotate-90' : ''}`}
-                              fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
+                            <button
+                              onClick={() => toggleEpic(epic)}
+                              className="flex items-center gap-1.5 flex-1 min-w-0 uppercase"
                             >
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                            </svg>
-                            <span className="truncate">{epic}</span>
-                            <span className="ml-auto text-gray-400 font-normal">{epicTasks.length}</span>
-                          </button>
+                              <svg
+                                className={`w-3 h-3 flex-shrink-0 transition-transform ${isOpen ? 'rotate-90' : ''}`}
+                                fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
+                              >
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                              </svg>
+                              <span className="truncate">{epic}</span>
+                            </button>
+                            <TestVerdictBadge verdict={verdict} />
+                            <span className="font-normal opacity-70">{epicTasks.length}</span>
+                            <button
+                              onClick={() => runEpicTest(epic)}
+                              disabled={testBlocked}
+                              title={testTitle}
+                              className={`flex-shrink-0 rounded p-0.5 transition-opacity ${
+                                testBlocked ? 'opacity-40 cursor-not-allowed' : 'opacity-80 hover:opacity-100'
+                              }`}
+                            >
+                              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M8 5v14l11-7z" />
+                              </svg>
+                            </button>
+                          </div>
                           {isOpen && epicTasks.map((task, i) => (
                             <Draggable draggableId={task.epic + '/' + task.id} index={epicStart + i} key={task.epic + '/' + task.id}>
                               {(provided) => (

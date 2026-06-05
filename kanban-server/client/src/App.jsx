@@ -63,21 +63,33 @@ function boardReducer(state, action) {
 export default function App() {
   const [state, dispatch] = useReducer(boardReducer, initialState);
   const [autoRun, setAutoRun] = useState(() => localStorage.getItem('kanban-autoRun') === 'true');
+  // epic -> 'IN-PROGRESS' | 'PASS' | 'FAIL'. Fed by epic-test SSE events
+  // (initial snapshot on connect + live TEST-REPORT.md changes).
+  const [epicTests, setEpicTests] = useState({});
 
   useEffect(() => {
     localStorage.setItem('kanban-autoRun', autoRun);
   }, [autoRun]);
   const esRef = useRef(null);
   const retryRef = useRef(null);
-  const prevDoneRef = useRef(new Set());
+  // Tracks the last-seen status of every task (uid -> status). Used to detect a
+  // genuine transition INTO done. Tasks first seen already in done (the initial
+  // snapshot delivered on connect / page reload) have no prior status and are NOT
+  // treated as newly-done, so a reload never re-triggers autoRun.
+  const prevStatusRef = useRef(new Map());
+  // Epics for which the /team-lead:test gate was already launched this session —
+  // prevents duplicate test terminals. Cleared when an epic re-opens (a task
+  // leaves done), so a later re-completion can fire the gate again.
+  const testedEpicsRef = useRef(new Set());
 
-  // Detect newly-done tasks and trigger next readyForDevelop when autoRun is on.
-  // Uses state directly (not a stale ref) so the chain works for every task.
+  // Detect tasks that just transitioned into done and trigger the next
+  // readyForDevelop when autoRun is on. Uses state directly (not a stale ref).
   useEffect(() => {
-    const currDoneIds = new Set((state.done || []).map((t) => taskUid(t)));
-
     if (autoRun) {
-      const newlyDone = (state.done || []).filter((t) => !prevDoneRef.current.has(taskUid(t)));
+      const newlyDone = (state.done || []).filter((t) => {
+        const prev = prevStatusRef.current.get(taskUid(t));
+        return prev !== undefined && prev !== 'done';
+      });
       if (newlyDone.length > 0) {
         const readyTasks = (state.readyForDevelop || [])
           .slice()
@@ -93,11 +105,47 @@ export default function App() {
             dispatch({ type: 'DRAG_REVERT', taskId: next.id, taskEpic: next.epic, originalStatus: 'readyForDevelop' });
           });
         }
+
+        // Per-epic completion: when every task of an epic that just had a
+        // done-transition is now in done, launch the /team-lead:test gate once.
+        const epicTotals = new Map(); // epic -> { total, done }
+        for (const col of COLUMN_ORDER) {
+          for (const t of state[col] || []) {
+            const e = epicTotals.get(t.epic) || { total: 0, done: 0 };
+            e.total += 1;
+            if (col === 'done') e.done += 1;
+            epicTotals.set(t.epic, e);
+          }
+        }
+        const epicsJustTouched = new Set(newlyDone.map((t) => t.epic));
+        for (const epic of epicsJustTouched) {
+          const e = epicTotals.get(epic);
+          // Skip when a gate is already running (IN-PROGRESS) or the epic already
+          // passed (PASS) — the server's 409 guards cover both; this avoids the noise.
+          if (epicTests[epic] === 'IN-PROGRESS' || epicTests[epic] === 'PASS') continue;
+          if (e && e.total > 0 && e.done === e.total && !testedEpicsRef.current.has(epic)) {
+            testedEpicsRef.current.add(epic);
+            fetch('/epics/' + epic + '/test', { method: 'POST' }).catch(() => {
+              testedEpicsRef.current.delete(epic); // allow retry on failure
+            });
+          }
+        }
       }
     }
 
-    prevDoneRef.current = currDoneIds;
-  }, [state, autoRun]);
+    // Record the current status of every task on the board for the next diff,
+    // and release the test guard for any epic that is no longer fully done.
+    const nextStatus = new Map();
+    const epicHasOpen = new Set();
+    for (const col of COLUMN_ORDER) {
+      for (const t of state[col] || []) {
+        nextStatus.set(taskUid(t), col);
+        if (col !== 'done') epicHasOpen.add(t.epic);
+      }
+    }
+    for (const epic of epicHasOpen) testedEpicsRef.current.delete(epic);
+    prevStatusRef.current = nextStatus;
+  }, [state, autoRun, epicTests]);
 
   useEffect(() => {
     function connect() {
@@ -107,6 +155,19 @@ export default function App() {
       es.addEventListener('task-updated', (e) => {
         const task = JSON.parse(e.data);
         dispatch({ type: 'SSE_UPDATE', task });
+      });
+
+      es.addEventListener('epic-test', (e) => {
+        const { epic, verdict } = JSON.parse(e.data);
+        setEpicTests((prev) => {
+          if (verdict === null) {
+            // TEST-REPORT.md deleted — clear the badge / unblock the button.
+            const next = { ...prev };
+            delete next[epic];
+            return next;
+          }
+          return { ...prev, [epic]: verdict };
+        });
       });
 
       es.onerror = () => {
@@ -123,5 +184,5 @@ export default function App() {
     };
   }, [dispatch]);
 
-  return <Board tasks={state} dispatch={dispatch} autoRun={autoRun} setAutoRun={setAutoRun} />;
+  return <Board tasks={state} dispatch={dispatch} autoRun={autoRun} setAutoRun={setAutoRun} epicTests={epicTests} />;
 }

@@ -24,6 +24,10 @@ export default defineConfig({
         target: 'http://localhost:6111',
         changeOrigin: true,
       },
+      '/epics': {
+        target: 'http://localhost:6111',
+        changeOrigin: true,
+      },
       '/health': {
         target: 'http://localhost:6111',
         changeOrigin: true,

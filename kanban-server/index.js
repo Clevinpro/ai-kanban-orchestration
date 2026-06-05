@@ -28,6 +28,68 @@ const WORK_DIR = path.join(__dirname, '..', '.planning', 'work');
 // readyForDevelop and done are intentionally excluded.
 const STOPPABLE = ['inProgress', 'inReview', 'inTesting', 'forTeamLeadCheck'];
 
+// Terminal-spawn dedup: track tasks for which we've already opened an iTerm tab,
+// so a re-sent inProgress (page reload, multiple browser tabs, autoRun race) does
+// NOT spawn a second terminal that would conflict with the running agent.
+// uid -> timestamp(ms). Cleared when the task leaves a running status (see chokidar).
+const spawnedTasks = new Map();
+// Cooldown covers the window between spawning the terminal and the agent writing
+// `status: inProgress` to the file — during which the on-disk guard alone is blind.
+const SPAWN_COOLDOWN_MS = 5 * 60 * 1000;
+
+// A task is considered "no longer running" (terminal closed / pipeline ended) in
+// these statuses — used to release the spawn guard so the task can be re-run later.
+const NOT_RUNNING = ['done', 'stopped', 'readyForDevelop'];
+
+// Epic-test dedup: track epics for which we've already opened a /team-lead:test
+// terminal, so a re-fire (reload, multiple tabs) does not spawn duplicate gates.
+// epic -> timestamp(ms).
+const testedEpics = new Map();
+const TEST_COOLDOWN_MS = 5 * 60 * 1000;
+
+// ---------------------------------------------------------------------------
+// Epic test report (TEST-REPORT.md) helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Read the Verdict line from an epic's TEST-REPORT.md.
+ * Returns 'IN-PROGRESS' | 'PASS' | 'FAIL' | null (no report / unreadable).
+ */
+function readTestVerdict(epic) {
+  try {
+    const content = fs.readFileSync(path.join(WORK_DIR, epic, 'TEST-REPORT.md'), 'utf8');
+    const m = content.match(/^Verdict:\s*(\S+)/m);
+    return m ? m[1].toUpperCase() : null;
+  } catch {
+    return null; // no report yet
+  }
+}
+
+/**
+ * Write the IN-PROGRESS marker report at test launch. /team-lead:test will
+ * overwrite this file with the final PASS/FAIL report when it finishes.
+ * A previous report (FAIL re-run) is preserved as TEST-REPORT.prev.md so the
+ * test command can re-verify only the ACs that failed last time.
+ * Capitalized `Verdict:` — never a lowercase `status:` line, so the
+ * task-state-guard hook ignores this file (same rule as the test command).
+ */
+function writeInProgressReport(epic) {
+  const filePath = path.join(WORK_DIR, epic, 'TEST-REPORT.md');
+  if (fs.existsSync(filePath)) {
+    fs.copyFileSync(filePath, path.join(WORK_DIR, epic, 'TEST-REPORT.prev.md'));
+  }
+  const content = [
+    '# Epic Test Report — ' + epic,
+    '',
+    'Verdict: IN-PROGRESS',
+    'Generated: ' + new Date().toISOString(),
+    '',
+    'Launched /team-lead:test from the kanban board. Awaiting results...',
+    '',
+  ].join('\n');
+  fs.writeFileSync(filePath, content, 'utf8');
+}
+
 // ---------------------------------------------------------------------------
 // Task file parsing
 // ---------------------------------------------------------------------------
@@ -113,6 +175,17 @@ function pushEvent(taskObj) {
   }
 }
 
+/**
+ * Push an epic-test SSE event to all connected clients.
+ * Payload: { epic, verdict } — verdict is IN-PROGRESS | PASS | FAIL | null (report deleted).
+ */
+function pushTestEvent(epic, verdict) {
+  const data = `event: epic-test\ndata: ${JSON.stringify({ epic, verdict })}\n\n`;
+  for (const res of clients) {
+    res.write(data);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Express app
 // ---------------------------------------------------------------------------
@@ -148,6 +221,20 @@ app.get('/events', (req, res) => {
   const allTasks = loadAllTasks();
   for (const task of allTasks) {
     res.write(`event: task-updated\ndata: ${JSON.stringify(task)}\n\n`);
+  }
+
+  // Initial epic-test snapshot: emit the current verdict of every TEST-REPORT.md,
+  // so a page reload restores button blocked/badge state.
+  try {
+    for (const entry of fs.readdirSync(WORK_DIR, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const verdict = readTestVerdict(entry.name);
+      if (verdict) {
+        res.write(`event: epic-test\ndata: ${JSON.stringify({ epic: entry.name, verdict })}\n\n`);
+      }
+    }
+  } catch {
+    // WORK_DIR not readable — skip snapshot
   }
 
   clients.push(res);
@@ -292,6 +379,19 @@ app.patch('/tasks/:epic/:id/status', (req, res) => {
       // Don't write file — agent sets inProgress itself. Board shows it optimistically.
       // No --auto-next: kanban autoRun handles chaining via SSE done-detection;
       // terminal users pass --auto-next manually for same-session chaining.
+      const uid = epic + '/' + taskId;
+      const onDisk = parseTaskFile(found);
+      const recent = spawnedTasks.get(uid);
+      const recentlySpawned = recent && (Date.now() - recent) < SPAWN_COOLDOWN_MS;
+
+      // Dedup guard: a terminal is already running this task if either the file
+      // already reads inProgress (agent flipped it) or we spawned one recently.
+      // Skip the spawn instead of opening a conflicting second terminal.
+      if ((onDisk && onDisk.status === 'inProgress') || recentlySpawned) {
+        return res.json({ ok: true, task: onDisk, alreadyRunning: true });
+      }
+
+      spawnedTasks.set(uid, Date.now());
       const script = path.join(__dirname, 'run-task.sh');
       spawn('osascript', [
         '-e', `tell application "iTerm"`,
@@ -322,6 +422,64 @@ app.patch('/tasks/:epic/:id/status', (req, res) => {
   }
 });
 
+// POST /epics/:epic/test — launch the epic acceptance gate (/team-lead:test)
+// when every task of an epic is done. Spawns one iTerm tab; deduped per epic.
+app.post('/epics/:epic/test', (req, res) => {
+  try {
+    const { epic } = req.params;
+
+    // Validate epic name — no path traversal (only word chars and hyphens).
+    if (!/^[\w-]+$/.test(epic)) {
+      return res.status(400).json({ error: 'Invalid epic name.' });
+    }
+
+    // Epic directory must exist under WORK_DIR.
+    const epicDir = path.join(WORK_DIR, epic);
+    if (!fs.existsSync(epicDir)) {
+      return res.status(404).json({ error: 'Epic not found: ' + epic });
+    }
+
+    // Persistent guard (survives server restarts):
+    // - IN-PROGRESS: a gate is running — block duplicate launch.
+    // - PASS: epic already verified — re-run requires deleting TEST-REPORT.md.
+    // - FAIL: allowed — re-run verifies only the previously failed ACs.
+    const verdict = readTestVerdict(epic);
+    if (verdict === 'IN-PROGRESS') {
+      return res.status(409).json({ ok: false, alreadyRunning: true, error: 'Epic test already in progress: ' + epic });
+    }
+    if (verdict === 'PASS') {
+      return res.status(409).json({ ok: false, alreadyPassed: true, error: 'Epic test already passed: ' + epic + '. Delete TEST-REPORT.md to re-run.' });
+    }
+
+    // Dedup guard: skip if we launched the test for this epic recently.
+    const recent = testedEpics.get(epic);
+    if (recent && (Date.now() - recent) < TEST_COOLDOWN_MS) {
+      return res.json({ ok: true, alreadyRunning: true });
+    }
+    testedEpics.set(epic, Date.now());
+
+    // Write the IN-PROGRESS marker before spawning — blocks duplicate launches
+    // and is pushed to all boards via the chokidar watcher below.
+    writeInProgressReport(epic);
+
+    const script = path.join(__dirname, 'run-test.sh');
+    spawn('osascript', [
+      '-e', `tell application "iTerm"`,
+      '-e', `  tell current window`,
+      '-e', `    create tab with default profile`,
+      '-e', `    tell current session`,
+      '-e', `      write text "bash '${script}' ${epic}"`,
+      '-e', `    end tell`,
+      '-e', `  end tell`,
+      '-e', `end tell`,
+    ], { detached: true, stdio: 'ignore' }).unref();
+
+    return res.json({ ok: true, launched: true });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // chokidar watcher — live file change events (D-11, D-12, SC-2)
 // Pattern 2 from RESEARCH.md: ignoreInitial:true; initial snapshot handled per SSE connect (D-13)
@@ -334,14 +492,42 @@ chokidar.watch(WORK_DIR + '/**/*.md', {
   awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 100 },
 })
   .on('add', function (f) {
+    if (path.basename(f) === 'TEST-REPORT.md') {
+      const epic = path.basename(path.dirname(f));
+      return pushTestEvent(epic, readTestVerdict(epic));
+    }
     const t = parseTaskFile(f);
     if (t) pushEvent(t);
   })
   .on('change', function (f) {
+    if (path.basename(f) === 'TEST-REPORT.md') {
+      // /team-lead:test overwrote the marker with the final report — push the
+      // new verdict so boards unblock the run button and show PASS/FAIL.
+      const epic = path.basename(path.dirname(f));
+      const verdict = readTestVerdict(epic);
+      // Release the launch cooldown once the gate finished, so a manual re-run
+      // right after a PASS/FAIL is not blocked for the remaining cooldown window.
+      if (verdict !== 'IN-PROGRESS') testedEpics.delete(epic);
+      return pushTestEvent(epic, verdict);
+    }
     const t = parseTaskFile(f);
-    if (t) pushEvent(t);
+    if (t) {
+      // Release the spawn guard once the task is no longer running, so a later
+      // re-run (e.g. after stop) is allowed to open a fresh terminal.
+      if (t.id && t.epic && NOT_RUNNING.includes(t.status)) {
+        spawnedTasks.delete(t.epic + '/' + t.id);
+      }
+      pushEvent(t);
+    }
   })
   .on('unlink', function (f) {
+    if (path.basename(f) === 'TEST-REPORT.md') {
+      // Report deleted — clear verdict badge and unblock the run button.
+      return pushTestEvent(path.basename(path.dirname(f)), null);
+    }
+    // Only TASK-NNN.md deletions are board events — ignore TEST-REPORT.prev.md,
+    // SPEC.md and other non-task markdown files.
+    if (!/^TASK-\d{3}\.md$/.test(path.basename(f))) return;
     // D-12: deleted tasks include deleted: true flag; emit epic so taskUid resolves correctly
     pushEvent({ id: path.basename(f, '.md'), epic: path.basename(path.dirname(f)), deleted: true });
   });

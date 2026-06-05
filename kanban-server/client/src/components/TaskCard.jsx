@@ -35,7 +35,7 @@ const TaskCard = React.forwardRef(({ task, isDone }, ref) => {
   return (
     <div
       ref={ref}
-      className={`bg-white rounded-md shadow-sm p-2 mb-1.5 text-xs flex flex-col${isDone ? ' min-h-[180px]' : ''}`}
+      className="bg-white rounded-md shadow-sm p-2 mb-1.5 text-xs flex flex-col"
     >
       <div className="font-medium text-gray-800 leading-snug text-sm mb-[5px]">
         {task.title}
