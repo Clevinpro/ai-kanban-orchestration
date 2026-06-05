@@ -1,4 +1,5 @@
 import axios from 'axios';
+import type * as AxiosModule from 'axios';
 import type { AxiosError } from 'axios';
 import { OllamaEmbeddingProvider } from './ollama-embedding.provider';
 
@@ -11,12 +12,21 @@ const mockedAxios = axios as jest.Mocked<typeof axios>;
 
 // AxiosError from the real module (jest.mock replaces the module with auto-mocks,
 // so we must reach into the actual implementation for the real class constructor).
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { AxiosError: RealAxiosError } = jest.requireActual<typeof import('axios')>('axios');
+
+const { AxiosError: RealAxiosError } = jest.requireActual<typeof AxiosModule>('axios');
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+type MockLogger = {
+  log: jest.Mock;
+  debug: jest.Mock;
+  warn: jest.Mock;
+  error: jest.Mock;
+};
+
+let lastLogger: MockLogger;
 
 function makeProvider(
   overrides: { OLLAMA_URL?: string; OLLAMA_EMBEDDING_MODEL?: string } = {},
@@ -30,14 +40,14 @@ function makeProvider(
     get: <T>(key: string): T | undefined => env[key] as T | undefined,
   } as never;
 
-  const logger = {
+  lastLogger = {
     log: jest.fn(),
     debug: jest.fn(),
     warn: jest.fn(),
     error: jest.fn(),
-  } as never;
+  };
 
-  return new OllamaEmbeddingProvider(configService, logger);
+  return new OllamaEmbeddingProvider(configService, lastLogger as never);
 }
 
 // ---------------------------------------------------------------------------
@@ -55,8 +65,8 @@ describe('OllamaEmbeddingProvider — construction', () => {
   });
 
   it('defaults embeddingModel to nomic-embed-text when OLLAMA_EMBEDDING_MODEL is not set', () => {
-    expect(
-      () => makeProvider({ OLLAMA_EMBEDDING_MODEL: undefined as unknown as string }),
+    expect(() =>
+      makeProvider({ OLLAMA_EMBEDDING_MODEL: undefined as unknown as string }),
     ).not.toThrow();
   });
 
@@ -114,6 +124,18 @@ describe('OllamaEmbeddingProvider.generateEmbedding', () => {
 
     const [url] = mockedAxios.post.mock.calls[0] as [string, unknown];
     expect(url).toBe('http://ollama-service:11434/api/embeddings');
+  });
+
+  it('logs the embed duration with provider name (AC-08)', async () => {
+    mockedAxios.post.mockResolvedValueOnce({ data: { embedding: [0.1, 0.2] } });
+
+    const provider = makeProvider();
+    await provider.generateEmbedding('hello');
+
+    expect(lastLogger.debug).toHaveBeenCalledWith(
+      expect.stringMatching(/^Ollama embed: \d+ms$/),
+      'OllamaEmbeddingProvider',
+    );
   });
 });
 
@@ -197,5 +219,17 @@ describe('OllamaEmbeddingProvider.generateBatch', () => {
 
     const provider = makeProvider();
     await expect(provider.generateBatch(['ok', 'fail'])).rejects.toThrow('model timeout');
+  });
+
+  it('logs the batch embed duration with provider name (AC-08)', async () => {
+    mockedAxios.post.mockResolvedValue({ data: { embedding: [0.1] } });
+
+    const provider = makeProvider();
+    await provider.generateBatch(['a', 'b']);
+
+    expect(lastLogger.debug).toHaveBeenCalledWith(
+      expect.stringMatching(/^Ollama embed: \d+ms$/),
+      'OllamaEmbeddingProvider',
+    );
   });
 });

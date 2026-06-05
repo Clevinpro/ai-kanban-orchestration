@@ -20,6 +20,7 @@ interface VaultDocument {
   id: string;
   filePath: string;
   updatedAt: Date;
+  chunkCount: number;
 }
 
 @Injectable()
@@ -204,12 +205,17 @@ export class VaultSyncService implements OnModuleInit {
       return { documentId: result.documentId, chunksCount: result.chunksCount };
     }
 
-    if (mtime > existing.updatedAt) {
-      // Stale file — upload the new version first so that if uploadDocument
-      // fails, the existing record remains intact (no data loss).
+    // Re-index when the file changed on disk OR when the document exists but has
+    // no chunks (e.g. chunks were truncated on an embedding-provider switch but the
+    // document row survived) — otherwise such a doc would be skipped as "up-to-date"
+    // and stay unsearchable forever.
+    if (mtime > existing.updatedAt || existing.chunkCount === 0) {
+      // Stale (or chunk-less) file — upload the new version first so that if
+      // uploadDocument fails, the existing record remains intact (no data loss).
       const title = this.deriveTitle(storedPath);
       this.logger.log(
-        `VaultSyncService: re-indexing stale file id=${existing.id} (${storedPath})`,
+        `VaultSyncService: re-indexing file id=${existing.id} (${storedPath}), ` +
+          `reason=${existing.chunkCount === 0 ? 'no-chunks' : 'stale'}`,
         'VaultSyncService',
       );
 
@@ -237,9 +243,15 @@ export class VaultSyncService implements OnModuleInit {
   private async findDocumentByFilePath(filePath: string): Promise<VaultDocument | null> {
     const rows = await this.prismaService.$queryRaw<VaultDocument[]>(
       Prisma.sql`
-        SELECT "id", "file_path" AS "filePath", "updated_at" AS "updatedAt"
-        FROM "documents"
-        WHERE "file_path" = ${filePath}
+        SELECT
+          d."id",
+          d."file_path" AS "filePath",
+          d."updated_at" AS "updatedAt",
+          COUNT(c."id")::int AS "chunkCount"
+        FROM "documents" d
+        LEFT JOIN "chunks" c ON c."document_id" = d."id"
+        WHERE d."file_path" = ${filePath}
+        GROUP BY d."id", d."file_path", d."updated_at"
         LIMIT 1
       `,
     );

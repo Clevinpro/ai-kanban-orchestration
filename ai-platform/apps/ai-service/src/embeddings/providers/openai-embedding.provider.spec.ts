@@ -1,4 +1,5 @@
 import axios from 'axios';
+import type * as AxiosModule from 'axios';
 import type { AxiosError } from 'axios';
 import { OpenAiEmbeddingProvider } from './openai-embedding.provider';
 
@@ -11,8 +12,8 @@ const mockedAxiosPost = axios.post as jest.MockedFunction<typeof axios.post>;
 
 // AxiosError from the real module (jest.mock replaces the module with auto-mocks,
 // so we must reach into the actual implementation for the real class constructor).
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { AxiosError: RealAxiosError } = jest.requireActual<typeof import('axios')>('axios');
+
+const { AxiosError: RealAxiosError } = jest.requireActual<typeof AxiosModule>('axios');
 
 function makeProvider(
   overrides: { OPENAI_API_KEY?: string; OPENAI_EMBEDDING_MODEL?: string } = {},

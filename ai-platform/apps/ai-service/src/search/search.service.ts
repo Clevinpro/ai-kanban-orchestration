@@ -84,7 +84,7 @@ export class SearchService {
           FROM chunks c
           JOIN documents d ON c.document_id = d.id
           CROSS JOIN params
-          WHERE d.file_path LIKE ${filePathPrefix + '%'}
+          WHERE d.file_path LIKE ${'%' + filePathPrefix + '%'}
           ORDER BY c.embedding <=> params.query_vector::vector
           LIMIT ${limit}
         `,
@@ -128,7 +128,7 @@ export class SearchService {
           FROM chunks c
           JOIN documents d ON c.document_id = d.id
           WHERE c.content % ${query}
-            AND d.file_path LIKE ${filePathPrefix + '%'}
+            AND d.file_path LIKE ${'%' + filePathPrefix + '%'}
           ORDER BY similarity(c.content, ${query}) DESC, c.id ASC
           LIMIT ${limit}
         `,

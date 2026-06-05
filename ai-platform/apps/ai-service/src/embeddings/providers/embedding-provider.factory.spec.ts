@@ -1,6 +1,6 @@
 import { EmbeddingProviderFactory } from './embedding-provider.factory';
-import { OllamaEmbeddingProvider } from './ollama-embedding.provider';
-import { OpenAiEmbeddingProvider } from './openai-embedding.provider';
+import type { OllamaEmbeddingProvider } from './ollama-embedding.provider';
+import type { OpenAiEmbeddingProvider } from './openai-embedding.provider';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -21,7 +21,12 @@ function makeFactory(providerEnv: string | undefined): {
   const ollamaProvider = {} as OllamaEmbeddingProvider;
   const openAiProvider = {} as OpenAiEmbeddingProvider;
 
-  const factory = new EmbeddingProviderFactory(configService, ollamaProvider, openAiProvider, logger);
+  const factory = new EmbeddingProviderFactory(
+    configService,
+    ollamaProvider,
+    openAiProvider,
+    logger,
+  );
 
   return { factory, logSpy };
 }
@@ -61,7 +66,12 @@ describe('EmbeddingProviderFactory.getProvider', () => {
     const ollamaProvider = { generateEmbedding: jest.fn() } as unknown as OllamaEmbeddingProvider;
     const openAiProvider = { generateEmbedding: jest.fn() } as unknown as OpenAiEmbeddingProvider;
 
-    const factory = new EmbeddingProviderFactory(configService, ollamaProvider, openAiProvider, logger);
+    const factory = new EmbeddingProviderFactory(
+      configService,
+      ollamaProvider,
+      openAiProvider,
+      logger,
+    );
     expect(factory.getProvider()).toBe(ollamaProvider);
   });
 
@@ -74,7 +84,12 @@ describe('EmbeddingProviderFactory.getProvider', () => {
     const ollamaProvider = { generateEmbedding: jest.fn() } as unknown as OllamaEmbeddingProvider;
     const openAiProvider = { generateEmbedding: jest.fn() } as unknown as OpenAiEmbeddingProvider;
 
-    const factory = new EmbeddingProviderFactory(configService, ollamaProvider, openAiProvider, logger);
+    const factory = new EmbeddingProviderFactory(
+      configService,
+      ollamaProvider,
+      openAiProvider,
+      logger,
+    );
     expect(factory.getProvider()).toBe(openAiProvider);
   });
 
