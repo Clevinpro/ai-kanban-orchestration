@@ -211,6 +211,24 @@ describe('LmStudioEmbeddingProvider — HTTP error handling', () => {
     );
   });
 
+  it('falls back to the axios error code when the message is empty (ECONNREFUSED AggregateError)', async () => {
+    // Node >= 17 connection failures to localhost produce an AggregateError
+    // with an empty message; axios wraps it keeping message='' and code set.
+    const connError = new RealAxiosError(
+      '',
+      'ECONNREFUSED',
+      { url: `${DEFAULT_LMSTUDIO_URL}/embeddings`, method: 'post' } as never,
+      {} as never,
+      undefined,
+    ) as AxiosError;
+    mockedAxiosPost.mockRejectedValueOnce(connError);
+
+    const provider = makeProvider();
+    await expect(provider.generateEmbedding('hello')).rejects.toThrow(
+      'LM Studio API request failed: status=unknown, message=ECONNREFUSED',
+    );
+  });
+
   it('does not leak axios config/request internals on the rethrown error', async () => {
     mockedAxiosPost.mockRejectedValue(makeAxiosError(500));
 

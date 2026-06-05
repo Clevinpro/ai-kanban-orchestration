@@ -20,7 +20,7 @@ type LmStudioEmbeddingResponse = {
 
 function isAxiosLike(
   err: unknown,
-): err is Pick<AxiosError, 'response' | 'message' | 'config' | 'request'> {
+): err is Pick<AxiosError, 'response' | 'message' | 'config' | 'request' | 'code'> {
   return (
     typeof err === 'object' &&
     err !== null &&
@@ -32,9 +32,14 @@ function isAxiosLike(
 function sanitizeAxiosError(err: unknown): Error {
   if (isAxiosLike(err)) {
     const status = err.response?.status ?? 'unknown';
+    // Connection-level failures (e.g. ECONNREFUSED when the LM Studio server is
+    // not running) surface as an AggregateError with an empty message on Node
+    // >= 17 — fall back to the axios error code so the cause is never blank.
     const message =
-      (err.response?.data as { error?: { message?: string } } | undefined)?.error?.message ??
-      err.message;
+      (err.response?.data as { error?: { message?: string } } | undefined)?.error?.message ||
+      err.message ||
+      err.code ||
+      'connection failed (is the LM Studio server running?)';
     return new Error(`LM Studio API request failed: status=${status}, message=${message}`);
   }
   return err instanceof Error ? err : new Error(String(err));
