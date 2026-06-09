@@ -44,7 +44,8 @@ export interface IAIProvider {
 }
 
 export interface IAIConfig {
-  provider: 'claude' | 'ollama';
+  provider: 'claude' | 'ollama' | 'lmstudio';
   claudeApiKey?: string;
   ollamaUrl?: string;
+  lmStudioUrl?: string;
 }

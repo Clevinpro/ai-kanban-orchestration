@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { AiProviderFactory } from './providers/ai-provider.factory';
 import { ClaudeProvider } from './providers/claude.provider';
 import { OllamaProvider } from './providers/ollama.provider';
+import { LmStudioProvider } from './providers/lmstudio.provider';
 
 /**
  * LLM provider wiring with no Kafka / messaging coupling.
@@ -14,7 +15,7 @@ import { OllamaProvider } from './providers/ollama.provider';
  */
 @Module({
   imports: [ConfigModule],
-  providers: [AiProviderFactory, ClaudeProvider, OllamaProvider],
-  exports: [AiProviderFactory, ClaudeProvider, OllamaProvider],
+  providers: [AiProviderFactory, ClaudeProvider, OllamaProvider, LmStudioProvider],
+  exports: [AiProviderFactory, ClaudeProvider, OllamaProvider, LmStudioProvider],
 })
 export class AiProvidersModule {}

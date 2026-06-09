@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { IAIProvider } from '@ai-platform/shared';
 import { ClaudeProvider } from './claude.provider';
 import { OllamaProvider } from './ollama.provider';
+import { LmStudioProvider } from './lmstudio.provider';
 
 @Injectable()
 export class AiProviderFactory {
@@ -13,6 +14,7 @@ export class AiProviderFactory {
     private readonly configService: ConfigService,
     private readonly claudeProvider: ClaudeProvider,
     private readonly ollamaProvider: OllamaProvider,
+    private readonly lmStudioProvider: LmStudioProvider,
     private readonly logger: LoggerService,
   ) {
     this.provider = this.configService.get<string>('AI_PROVIDER') ?? 'ollama';
@@ -26,6 +28,10 @@ export class AiProviderFactory {
 
     if (this.provider === 'ollama') {
       return this.ollamaProvider;
+    }
+
+    if (this.provider === 'lmstudio') {
+      return this.lmStudioProvider;
     }
 
     this.logger.error(`Unsupported AI_PROVIDER: ${this.provider}`, undefined, 'AiProviderFactory');
