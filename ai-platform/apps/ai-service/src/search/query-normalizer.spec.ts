@@ -5,14 +5,14 @@ import { QueryNormalizer } from './query-normalizer';
 // ---------------------------------------------------------------------------
 
 describe('QueryNormalizer.normalize', () => {
-  it('strips angle brackets and lowercases for semantic; keeps them for lexical', () => {
+  it('strips angle brackets and preserves case for semantic; keeps them for lexical', () => {
     const result = QueryNormalizer.normalize('<FAQ>');
-    expect(result).toEqual({ semantic: 'faq', lexical: '<FAQ>' });
+    expect(result).toEqual({ semantic: 'FAQ', lexical: '<FAQ>' });
   });
 
-  it('trims surrounding whitespace and preserves case in lexical', () => {
+  it('trims surrounding whitespace and preserves case in both semantic and lexical', () => {
     const result = QueryNormalizer.normalize('  тег FAQ  ');
-    expect(result).toEqual({ semantic: 'тег faq', lexical: 'тег FAQ' });
+    expect(result).toEqual({ semantic: 'тег FAQ', lexical: 'тег FAQ' });
   });
 
   it('collapses multiple interior spaces in semantic', () => {

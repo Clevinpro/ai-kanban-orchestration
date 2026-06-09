@@ -3,10 +3,15 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import type { AxiosError } from 'axios';
+import {
+  assertEmbeddingDimension,
+  DEFAULT_OPENAI_EMBEDDING_MODEL,
+  EXPECTED_EMBEDDING_DIM,
+} from '../embeddings.constants';
 import { EmbeddingProvider } from './embedding-provider.interface';
 
 const OPENAI_EMBEDDINGS_URL = 'https://api.openai.com/v1/embeddings';
-const DIMENSIONS = 768;
+const DIMENSIONS = EXPECTED_EMBEDDING_DIM;
 
 type OpenAiEmbeddingObject = {
   embedding: number[];
@@ -56,7 +61,7 @@ export class OpenAiEmbeddingProvider implements EmbeddingProvider {
       );
     }
     this.model =
-      this.configService.get<string>('OPENAI_EMBEDDING_MODEL') ?? 'text-embedding-3-small';
+      this.configService.get<string>('OPENAI_EMBEDDING_MODEL') ?? DEFAULT_OPENAI_EMBEDDING_MODEL;
   }
 
   private resolveApiKey(): string {
@@ -87,7 +92,7 @@ export class OpenAiEmbeddingProvider implements EmbeddingProvider {
     }
     const duration = Date.now() - start;
     this.logger.debug(`OpenAI embed: ${duration}ms`, 'OpenAiEmbeddingProvider');
-    return data.data[0].embedding;
+    return assertEmbeddingDimension(data.data[0].embedding, this.model);
   }
 
   async generateBatch(texts: string[]): Promise<number[][]> {
@@ -112,6 +117,6 @@ export class OpenAiEmbeddingProvider implements EmbeddingProvider {
     return data.data
       .slice()
       .sort((a, b) => a.index - b.index)
-      .map((d) => d.embedding);
+      .map((d) => assertEmbeddingDimension(d.embedding, this.model));
   }
 }

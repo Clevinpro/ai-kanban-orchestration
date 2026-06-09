@@ -5,6 +5,11 @@ import { Prisma } from '@prisma/client';
 import { stat } from 'fs/promises';
 import { glob } from 'glob';
 import { join, resolve } from 'path';
+import {
+  DEFAULT_MULTILINGUAL_EMBEDDING_MODEL,
+  DEFAULT_OPENAI_EMBEDDING_MODEL,
+  INDEX_RECIPE_VERSION,
+} from '../embeddings/embeddings.constants';
 import { DocumentService } from '../document/document.service';
 
 const VAULT_PREFIX = 'docs/obsidian-vault/';
@@ -21,6 +26,12 @@ interface VaultDocument {
   filePath: string;
   updatedAt: Date;
   chunkCount: number;
+}
+
+interface EmbeddingProviderState {
+  provider: string;
+  model: string | null;
+  recipeVersion: string | null;
 }
 
 @Injectable()
@@ -53,22 +64,88 @@ export class VaultSyncService implements OnModuleInit {
   async runProviderCheckAndStartupScan(): Promise<void> {
     await this.detectAndHandleProviderChange();
     await this.runStartupScan();
+    await this.recoverOrphanedPending();
   }
 
   /**
-   * Reads the stored embedding provider from DB. If it differs from the
-   * current EMBEDDING_PROVIDER env var, truncates the chunks table and
-   * deletes all vault document rows so the startup scan re-indexes cleanly.
-   * Always upserts the current provider name afterward.
+   * Crash recovery: after the vault file scan, no document should remain stuck in
+   * `pending`/`indexing` with zero chunks (a server killed mid-index leaves such a
+   * row). Vault files in that state are already re-indexed by the startup scan
+   * above (`reason=no-chunks`), which sets `status='ready'`. Any document still in
+   * `pending`/`indexing` with no chunks here has no vault source to re-index from
+   * (e.g. a manual upload interrupted mid-index, or a file removed from disk), so
+   * it is marked `failed` — leaving no orphaned `pending` rows after boot.
+   *
+   * Documents that already have chunks are left untouched: their status is flipped
+   * to `ready` so a row stuck at `indexing` (chunks inserted, status write lost on
+   * crash) reflects its real, searchable state.
+   */
+  async recoverOrphanedPending(): Promise<void> {
+    try {
+      // 1) Stuck rows WITH chunks → ready (they are searchable; only the final
+      //    status write was lost).
+      const recovered = await this.prismaService.$executeRaw`
+        UPDATE "documents" d
+        SET "status" = 'ready', "updated_at" = NOW()
+        WHERE d."status" IN ('pending', 'indexing')
+          AND EXISTS (SELECT 1 FROM "chunks" c WHERE c."document_id" = d."id")
+      `;
+
+      // 2) Stuck rows WITHOUT chunks that the scan could not re-index → failed
+      //    (no usable source remains; never leave an orphaned pending row).
+      const failed = await this.prismaService.$executeRaw`
+        UPDATE "documents" d
+        SET "status" = 'failed', "updated_at" = NOW()
+        WHERE d."status" IN ('pending', 'indexing')
+          AND NOT EXISTS (SELECT 1 FROM "chunks" c WHERE c."document_id" = d."id")
+      `;
+
+      if (recovered > 0 || failed > 0) {
+        this.logger.warn(
+          `VaultSyncService: crash recovery — ${recovered} stuck doc(s) marked ready, ` +
+            `${failed} chunk-less doc(s) marked failed`,
+          'VaultSyncService',
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        error instanceof Error ? error.message : String(error),
+        error instanceof Error ? error.stack : undefined,
+        'VaultSyncService',
+      );
+    }
+  }
+
+  /**
+   * Reads the stored `(provider, model, recipe_version)` fingerprint from DB. If
+   * the active EMBEDDING_PROVIDER, its resolved model, OR the current
+   * INDEX_RECIPE_VERSION differs from the stored row, truncates the chunks table
+   * and deletes all vault document rows so the startup scan re-indexes cleanly
+   * into the new vector space / index recipe. Always upserts the current
+   * fingerprint afterward.
+   *
+   * A model swap under the same provider is a different vector space, and an
+   * index-recipe bump rewrites stored chunk content/embeddings, so the
+   * fingerprint is composite: re-index fires when ANY of the three differs.
    */
   async detectAndHandleProviderChange(): Promise<void> {
     const active = (process.env['EMBEDDING_PROVIDER'] ?? 'ollama').toLowerCase();
+    const activeModel = this.resolveActiveModel(active);
+    const activeRecipe = INDEX_RECIPE_VERSION;
 
-    const stored = await this.readStoredProvider();
+    const stored = await this.readStoredState();
 
-    if (stored !== null && stored !== active) {
+    const changed =
+      stored !== null &&
+      (stored.provider !== active ||
+        stored.model !== activeModel ||
+        stored.recipeVersion !== activeRecipe);
+
+    if (changed) {
       this.logger.warn(
-        `Embedding provider changed: ${stored} → ${active}; truncating chunks`,
+        `Embedding fingerprint changed: ` +
+          `${stored.provider}/${stored.model}/${stored.recipeVersion} → ` +
+          `${active}/${activeModel}/${activeRecipe}; truncating chunks`,
         'VaultSyncService',
       );
       await this.prismaService.$executeRaw`TRUNCATE TABLE "chunks"`;
@@ -76,27 +153,55 @@ export class VaultSyncService implements OnModuleInit {
         .$executeRaw`DELETE FROM "documents" WHERE "file_path" LIKE 'docs/obsidian-vault/%'`;
     }
 
-    await this.upsertStoredProvider(active);
+    await this.upsertStoredState(active, activeModel, activeRecipe);
   }
 
   /**
-   * Reads the singleton provider row (id = 1). Returns null when no row exists.
+   * Resolves the active provider to its embedding model by reading the provider's
+   * model env var, falling back to the SAME default strings the provider classes
+   * use (single source of truth — imported, never re-hardcoded). Keeps the
+   * fingerprint in lockstep with what the active provider actually sends.
    */
-  async readStoredProvider(): Promise<string | null> {
-    const rows = await this.prismaService.$queryRaw<{ provider: string }[]>`
-      SELECT "provider" FROM "embedding_provider_state" WHERE "id" = 1 LIMIT 1
+  resolveActiveModel(provider: string): string {
+    switch (provider) {
+      case 'openai':
+        return process.env['OPENAI_EMBEDDING_MODEL']?.trim() || DEFAULT_OPENAI_EMBEDDING_MODEL;
+      case 'lmstudio':
+        return (
+          process.env['LMSTUDIO_EMBEDDING_MODEL']?.trim() || DEFAULT_MULTILINGUAL_EMBEDDING_MODEL
+        );
+      case 'ollama':
+      default:
+        return (
+          process.env['OLLAMA_EMBEDDING_MODEL']?.trim() || DEFAULT_MULTILINGUAL_EMBEDDING_MODEL
+        );
+    }
+  }
+
+  /**
+   * Reads the singleton provider-state row (id = 1). Returns null when no row
+   * exists. The `model` and `recipe_version` columns are nullable for rows
+   * written before those fields were tracked.
+   */
+  async readStoredState(): Promise<EmbeddingProviderState | null> {
+    const rows = await this.prismaService.$queryRaw<EmbeddingProviderState[]>`
+      SELECT "provider", "model", "recipe_version" AS "recipeVersion"
+      FROM "embedding_provider_state" WHERE "id" = 1 LIMIT 1
     `;
-    return rows[0]?.provider ?? null;
+    return rows[0] ?? null;
   }
 
   /**
-   * Upserts the singleton row (id always = 1) with the active provider name.
+   * Upserts the singleton row (id always = 1) with the active provider, model,
+   * and index recipe version.
    */
-  async upsertStoredProvider(provider: string): Promise<void> {
+  async upsertStoredState(provider: string, model: string, recipeVersion: string): Promise<void> {
     await this.prismaService.$executeRaw`
-      INSERT INTO "embedding_provider_state" ("id", "provider", "updated_at")
-      VALUES (1, ${provider}, NOW())
-      ON CONFLICT ("id") DO UPDATE SET "provider" = ${provider}, "updated_at" = NOW()
+      INSERT INTO "embedding_provider_state" ("id", "provider", "model", "recipe_version", "updated_at")
+      VALUES (1, ${provider}, ${model}, ${recipeVersion}, NOW())
+      ON CONFLICT ("id") DO UPDATE
+        SET "provider" = ${provider}, "model" = ${model},
+            "recipe_version" = ${recipeVersion}, "updated_at" = NOW()
     `;
   }
 

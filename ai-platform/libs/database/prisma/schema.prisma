@@ -8,14 +8,14 @@ datasource db {
 }
 
 model User {
-  id           String       @id @default(cuid())
-  email        String       @unique
-  password     String?
-  name         String?
-  avatar       String?
-  googleId     String?      @unique @map("google_id")
-  createdAt    DateTime     @default(now()) @map("created_at")
-  updatedAt    DateTime     @updatedAt @map("updated_at")
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String?
+  name      String?
+  avatar    String?
+  googleId  String?  @unique @map("google_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   refreshTokens RefreshToken[]
   conversations Conversation[]
@@ -42,6 +42,7 @@ model Document {
   filePath  String?  @map("file_path")
   summary   String?
   notes     String?
+  status    String   @default("pending")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -51,11 +52,11 @@ model Document {
 }
 
 model Chunk {
-  id         String                     @id @default(cuid())
+  id         String                      @id @default(cuid())
   content    String
-  embedding  Unsupported("vector(768)")
-  documentId String                     @map("document_id")
-  createdAt  DateTime                   @default(now()) @map("created_at")
+  embedding  Unsupported("vector(1024)")
+  documentId String                      @map("document_id")
+  createdAt  DateTime                    @default(now()) @map("created_at")
 
   document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
@@ -69,19 +70,19 @@ model Conversation {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  messages  Message[]
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages Message[]
 
   @@index([userId, createdAt])
   @@map("conversations")
 }
 
 model Message {
-  id         String    @id @default(cuid())
-  conversationId String @map("conversation_id")
-  role       MessageRole
-  content    String
-  createdAt  DateTime  @default(now()) @map("created_at")
+  id             String      @id @default(cuid())
+  conversationId String      @map("conversation_id")
+  role           MessageRole
+  content        String
+  createdAt      DateTime    @default(now()) @map("created_at")
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
@@ -96,9 +97,11 @@ enum MessageRole {
 }
 
 model EmbeddingProviderState {
-  id        Int      @id @default(1)
-  provider  String
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+  id            Int      @id @default(1)
+  provider      String
+  model         String?
+  recipeVersion String?  @map("recipe_version")
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at")
 
   @@map("embedding_provider_state")
 }

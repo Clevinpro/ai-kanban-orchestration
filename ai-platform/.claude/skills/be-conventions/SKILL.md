@@ -54,6 +54,25 @@ apps/<name>/
 - **Commit**: commitlint with @commitlint/config-conventional
 - **Run local env**: `npm start` launches all 3 services in parallel
 
+## Database & Migrations (Prisma)
+
+Prisma 7. Schema at `libs/database/prisma/schema.prisma`; config at `prisma.config.ts`; `DATABASE_URL` from `.env` (`postgresql://…@localhost:5432/ai_platform`). Run all commands from `ai-platform/`; Postgres must be up (`docker-compose up -d`).
+
+| Command                                     | What it does                                                                             | When                                                   |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| `npm run db:migrate` (`prisma migrate dev`) | Diffs `schema.prisma` → writes `migrations/<ts>_<name>/`, applies it, regenerates client | After editing `schema.prisma` (authoring)              |
+| `npx prisma migrate dev --name <name>`      | Same, no interactive name prompt                                                         | Authoring with a known name                            |
+| `npx prisma migrate deploy`                 | Applies pending migration files only — no authoring, no client regen, no prompt          | Boot / CI / applying existing migrations to a fresh DB |
+| `npm run db:generate` (`prisma generate`)   | Regenerates Prisma client only, no DB change                                             | After pulling migrations someone else authored         |
+| `npx prisma migrate status`                 | Shows applied vs pending                                                                 | Diagnose drift                                         |
+| `npx prisma migrate reset`                  | Drops + replays all migrations — **destroys data**                                       | Local reset only                                       |
+
+Rules:
+
+- `migrate dev` authors (local only). `migrate deploy` applies (CI/boot). Never run `migrate dev` in CI.
+- One migration dir per change: `migrations/<timestamp>_<snake_case_name>/`. Never hand-edit an already-applied migration — author a new one.
+- Commit the generated `migrations/` dir together with the `schema.prisma` change.
+
 ## App Dependencies
 
 | App            | Internal deps                                                        |

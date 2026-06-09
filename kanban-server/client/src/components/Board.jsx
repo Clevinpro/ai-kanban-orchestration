@@ -147,8 +147,15 @@ export default function Board({ tasks, dispatch, autoRun, setAutoRun, epicTests 
                 <div className="flex-1">
                   {status === 'done' ? (() => {
                     const byEpic = groupByEpic(tasks.done || []);
+                    // Last finished epic first: sort by the latest completed-at
+                    // among each epic's done tasks, descending.
+                    const lastDone = (epicTasks) =>
+                      Math.max(...epicTasks.map((t) => new Date(t['completed-at'] || 0).getTime() || 0));
+                    const ordered = Object.entries(byEpic).sort(
+                      ([, a], [, b]) => lastDone(b) - lastDone(a)
+                    );
                     let globalIndex = 0;
-                    return Object.entries(byEpic).map(([epic, epicTasks]) => {
+                    return ordered.map(([epic, epicTasks]) => {
                       const isOpen = !!openEpics[epic];
                       const fullyDone = epicFullyDone(epic, tasks);
                       const epicStart = globalIndex;

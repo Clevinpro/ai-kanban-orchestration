@@ -3,6 +3,7 @@ import {
   BadRequestException,
   Controller,
   Get,
+  GatewayTimeoutException,
   HttpCode,
   HttpStatus,
   Logger,
@@ -15,6 +16,7 @@ import { JwtAuthGuard } from '../auth/auth.guard';
 import { FileInterceptor } from '@nestjs/platform-express';
 
 const DEFAULT_AI_SERVICE_PORT = 4001;
+const DEFAULT_UPLOAD_PROXY_TIMEOUT_MS = 30_000;
 type UploadedMulterFile = {
   originalname: string;
   buffer: Buffer;
@@ -48,12 +50,12 @@ export class DocumentsController {
   }
 
   @Post('upload')
-  @HttpCode(HttpStatus.OK)
+  @HttpCode(HttpStatus.ACCEPTED)
   @UseGuards(JwtAuthGuard)
   @UseInterceptors(FileInterceptor('file'))
   async proxyUploadDocument(
     @UploadedFile() file: UploadedMulterFile | undefined,
-  ): Promise<{ documentId: string; chunksCount: number }> {
+  ): Promise<{ documentId: string; status: string }> {
     if (!file) {
       throw new BadRequestException('File is required');
     }
@@ -76,10 +78,29 @@ export class DocumentsController {
     );
     formData.append('titleBase64', Buffer.from(decodedFilename, 'utf8').toString('base64'));
 
-    const response = await fetch(`${this.getAiServiceBaseUrl()}/api/documents/upload`, {
-      method: 'POST',
-      body: formData,
-    });
+    const abortController = new AbortController();
+    const timeout = setTimeout(() => abortController.abort(), this.getUploadProxyTimeoutMs());
+
+    let response: Response;
+    try {
+      response = await fetch(`${this.getAiServiceBaseUrl()}/api/documents/upload`, {
+        method: 'POST',
+        body: formData,
+        signal: abortController.signal,
+      });
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        this.logger.error('AI service upload request timed out');
+        throw new GatewayTimeoutException('AI service upload request timed out');
+      }
+
+      this.logger.error(
+        `AI service upload request failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      throw new BadGatewayException('AI service upload request failed');
+    } finally {
+      clearTimeout(timeout);
+    }
 
     if (!response.ok) {
       const errorBody = await response.text().catch(() => '');
@@ -87,7 +108,7 @@ export class DocumentsController {
       throw new BadGatewayException('AI service upload request failed');
     }
 
-    return (await response.json()) as { documentId: string; chunksCount: number };
+    return (await response.json()) as { documentId: string; status: string };
   }
 
   private getAiServiceBaseUrl(): string {
@@ -101,6 +122,13 @@ export class DocumentsController {
     }
 
     return aiServiceUrl.replace(/\/$/, '');
+  }
+
+  private getUploadProxyTimeoutMs(): number {
+    const timeoutMs = Number(process.env.UPLOAD_PROXY_TIMEOUT_MS);
+    return Number.isFinite(timeoutMs) && timeoutMs > 0
+      ? timeoutMs
+      : DEFAULT_UPLOAD_PROXY_TIMEOUT_MS;
   }
 
   private getExtension(filename: string): string {

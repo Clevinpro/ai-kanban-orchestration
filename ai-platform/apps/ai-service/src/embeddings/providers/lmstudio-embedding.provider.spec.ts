@@ -1,7 +1,13 @@
 import axios from 'axios';
 import type * as AxiosModule from 'axios';
 import type { AxiosError } from 'axios';
+import { EXPECTED_EMBEDDING_DIM } from '../embeddings.constants';
 import { LmStudioEmbeddingProvider } from './lmstudio-embedding.provider';
+
+// A valid 1024-dim embedding that satisfies the dimension guard.
+function dimVector(seed = 0.001): number[] {
+  return Array.from({ length: EXPECTED_EMBEDDING_DIM }, (_, i) => i * seed);
+}
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -15,7 +21,7 @@ const mockedAxiosPost = axios.post as jest.MockedFunction<typeof axios.post>;
 const { AxiosError: RealAxiosError } = jest.requireActual<typeof AxiosModule>('axios');
 
 const DEFAULT_LMSTUDIO_URL = 'http://localhost:1234/v1';
-const DEFAULT_LMSTUDIO_MODEL = 'text-embedding-nomic-embed-text-v1.5';
+const DEFAULT_LMSTUDIO_MODEL = 'bge-m3';
 
 function makeProvider(
   overrides: { LMSTUDIO_URL?: string; LMSTUDIO_EMBEDDING_MODEL?: string } = {},
@@ -43,7 +49,7 @@ describe('LmStudioEmbeddingProvider — configuration defaults', () => {
 
   it('falls back to default URL and model when env vars are unset', async () => {
     mockedAxiosPost.mockResolvedValueOnce({
-      data: { data: [{ embedding: [0.1], index: 0, object: 'embedding' }] },
+      data: { data: [{ embedding: dimVector(), index: 0, object: 'embedding' }] },
     });
 
     const provider = makeProvider();
@@ -56,7 +62,7 @@ describe('LmStudioEmbeddingProvider — configuration defaults', () => {
 
   it('uses custom URL and model from env when set', async () => {
     mockedAxiosPost.mockResolvedValueOnce({
-      data: { data: [{ embedding: [0.1], index: 0, object: 'embedding' }] },
+      data: { data: [{ embedding: dimVector(), index: 0, object: 'embedding' }] },
     });
 
     const provider = makeProvider({
@@ -79,7 +85,7 @@ describe('LmStudioEmbeddingProvider.generateEmbedding', () => {
   beforeEach(() => jest.clearAllMocks());
 
   it('POSTs to <LMSTUDIO_URL>/embeddings and returns the embedding vector', async () => {
-    const embedding = Array.from({ length: 768 }, (_, i) => i * 0.001);
+    const embedding = dimVector();
     mockedAxiosPost.mockResolvedValueOnce({
       data: { data: [{ embedding, index: 0, object: 'embedding' }] },
     });
@@ -116,8 +122,8 @@ describe('LmStudioEmbeddingProvider.generateBatch', () => {
   beforeEach(() => jest.clearAllMocks());
 
   it('POSTs all texts in a single HTTP call with input: string[]', async () => {
-    const emb1 = [0.1, 0.2];
-    const emb2 = [0.3, 0.4];
+    const emb1 = dimVector(0.001);
+    const emb2 = dimVector(0.002);
     mockedAxiosPost.mockResolvedValueOnce({
       data: {
         data: [
@@ -149,9 +155,9 @@ describe('LmStudioEmbeddingProvider.generateBatch', () => {
   });
 
   it('sorts embeddings by index field when API returns them out of order', async () => {
-    const emb0 = [0.1, 0.2];
-    const emb1 = [0.3, 0.4];
-    const emb2 = [0.5, 0.6];
+    const emb0 = dimVector(0.001);
+    const emb1 = dimVector(0.002);
+    const emb2 = dimVector(0.003);
     // API returns objects shuffled: index 2, 0, 1
     mockedAxiosPost.mockResolvedValueOnce({
       data: {
