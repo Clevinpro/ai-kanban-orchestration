@@ -2,6 +2,10 @@ import { LoggerService } from '@ai-platform/shared';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
+import {
+  assertEmbeddingDimension,
+  DEFAULT_MULTILINGUAL_EMBEDDING_MODEL,
+} from '../embeddings.constants';
 import { EmbeddingProvider } from './embedding-provider.interface';
 
 type OllamaEmbeddingResponse = {
@@ -19,7 +23,7 @@ export class OllamaEmbeddingProvider implements EmbeddingProvider {
   ) {
     this.ollamaUrl = this.configService.get<string>('OLLAMA_URL') ?? 'http://localhost:11434';
     const rawModel = this.configService.get<string>('OLLAMA_EMBEDDING_MODEL');
-    this.embeddingModel = rawModel?.trim() || 'nomic-embed-text';
+    this.embeddingModel = rawModel?.trim() || DEFAULT_MULTILINGUAL_EMBEDDING_MODEL;
   }
 
   async generateEmbedding(text: string): Promise<number[]> {
@@ -39,7 +43,7 @@ export class OllamaEmbeddingProvider implements EmbeddingProvider {
       'OllamaEmbeddingProvider',
     );
     this.logger.debug(`Ollama embed: ${duration}ms`, 'OllamaEmbeddingProvider');
-    return data.embedding;
+    return assertEmbeddingDimension(data.embedding, this.embeddingModel);
   }
 
   async generateBatch(texts: string[]): Promise<number[][]> {
@@ -56,6 +60,6 @@ export class OllamaEmbeddingProvider implements EmbeddingProvider {
       model: this.embeddingModel,
       prompt: text,
     });
-    return data.embedding;
+    return assertEmbeddingDimension(data.embedding, this.embeddingModel);
   }
 }

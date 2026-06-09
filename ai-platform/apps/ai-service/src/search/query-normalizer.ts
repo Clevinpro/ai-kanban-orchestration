@@ -10,13 +10,13 @@ export class QueryNormalizer {
    *
    * - `lexical`  — NFC-normalized and trimmed only; preserves angle brackets
    *                and punctuation for lexical/trigram search.
-   * - `semantic` — Lower-cased, angle brackets replaced with spaces, and
-   *                consecutive whitespace collapsed; used for embedding.
+   * - `semantic` — Case preserved (bge-m3 is cased); angle brackets replaced
+   *                with spaces, and consecutive whitespace collapsed; used for
+   *                embedding.
    */
   static normalize(raw: string): { semantic: string; lexical: string } {
     const lexical = raw.normalize('NFC').trim();
     const semantic = lexical
-      .toLowerCase()
       .replace(/[<>]/g, ' ') // strip angle brackets
       .replace(/\s+/g, ' ')
       .trim();

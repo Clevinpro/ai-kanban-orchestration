@@ -1,5 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { resolve } from 'path';
+import { INDEX_RECIPE_VERSION } from '../embeddings/embeddings.constants';
 import { VaultSyncService } from './vault-sync.service';
 
 // ---------------------------------------------------------------------------
@@ -190,45 +191,102 @@ describe('VaultSyncService.syncFile', () => {
 });
 
 // ---------------------------------------------------------------------------
-// readStoredProvider
+// resolveActiveModel
 // ---------------------------------------------------------------------------
 
-describe('VaultSyncService.readStoredProvider', () => {
-  it('returns null when no row exists', async () => {
-    const service = makeService();
-    mockQueryRaw.mockResolvedValue([]);
-    const result = await service.readStoredProvider();
-    expect(result).toBeNull();
+describe('VaultSyncService.resolveActiveModel', () => {
+  const savedEnv = {
+    ollama: process.env['OLLAMA_EMBEDDING_MODEL'],
+    openai: process.env['OPENAI_EMBEDDING_MODEL'],
+    lmstudio: process.env['LMSTUDIO_EMBEDDING_MODEL'],
+  };
+
+  afterEach(() => {
+    if (savedEnv.ollama === undefined) delete process.env['OLLAMA_EMBEDDING_MODEL'];
+    else process.env['OLLAMA_EMBEDDING_MODEL'] = savedEnv.ollama;
+    if (savedEnv.openai === undefined) delete process.env['OPENAI_EMBEDDING_MODEL'];
+    else process.env['OPENAI_EMBEDDING_MODEL'] = savedEnv.openai;
+    if (savedEnv.lmstudio === undefined) delete process.env['LMSTUDIO_EMBEDDING_MODEL'];
+    else process.env['LMSTUDIO_EMBEDDING_MODEL'] = savedEnv.lmstudio;
   });
 
-  it('returns the stored provider name when a row exists', async () => {
+  it('defaults ollama to bge-m3 when OLLAMA_EMBEDDING_MODEL is unset', () => {
     const service = makeService();
-    mockQueryRaw.mockResolvedValue([{ provider: 'openai' }]);
-    const result = await service.readStoredProvider();
-    expect(result).toBe('openai');
+    delete process.env['OLLAMA_EMBEDDING_MODEL'];
+    expect(service.resolveActiveModel('ollama')).toBe('bge-m3');
+  });
+
+  it('defaults lmstudio to bge-m3 when LMSTUDIO_EMBEDDING_MODEL is unset', () => {
+    const service = makeService();
+    delete process.env['LMSTUDIO_EMBEDDING_MODEL'];
+    expect(service.resolveActiveModel('lmstudio')).toBe('bge-m3');
+  });
+
+  it('defaults openai to text-embedding-3-small when OPENAI_EMBEDDING_MODEL is unset', () => {
+    const service = makeService();
+    delete process.env['OPENAI_EMBEDDING_MODEL'];
+    expect(service.resolveActiveModel('openai')).toBe('text-embedding-3-small');
+  });
+
+  it('reads the per-provider model env var when set', () => {
+    const service = makeService();
+    process.env['LMSTUDIO_EMBEDDING_MODEL'] = 'custom-model';
+    expect(service.resolveActiveModel('lmstudio')).toBe('custom-model');
+  });
+
+  it('falls back to the ollama default for unknown providers', () => {
+    const service = makeService();
+    delete process.env['OLLAMA_EMBEDDING_MODEL'];
+    expect(service.resolveActiveModel('unknown')).toBe('bge-m3');
   });
 });
 
 // ---------------------------------------------------------------------------
-// upsertStoredProvider
+// readStoredState
 // ---------------------------------------------------------------------------
 
-describe('VaultSyncService.upsertStoredProvider', () => {
+describe('VaultSyncService.readStoredState', () => {
+  it('returns null when no row exists', async () => {
+    const service = makeService();
+    mockQueryRaw.mockResolvedValue([]);
+    const result = await service.readStoredState();
+    expect(result).toBeNull();
+  });
+
+  it('returns the stored provider, model, and recipe version when a row exists', async () => {
+    const service = makeService();
+    mockQueryRaw.mockResolvedValue([
+      { provider: 'openai', model: 'text-embedding-3-small', recipeVersion: 'v2' },
+    ]);
+    const result = await service.readStoredState();
+    expect(result).toEqual({
+      provider: 'openai',
+      model: 'text-embedding-3-small',
+      recipeVersion: 'v2',
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// upsertStoredState
+// ---------------------------------------------------------------------------
+
+describe('VaultSyncService.upsertStoredState', () => {
   it('calls $executeRaw to insert/update the singleton row', async () => {
     const service = makeService();
-    await service.upsertStoredProvider('ollama');
+    await service.upsertStoredState('ollama', 'bge-m3', INDEX_RECIPE_VERSION);
     expect(mockExecuteRaw).toHaveBeenCalledTimes(1);
   });
 });
 
 // ---------------------------------------------------------------------------
-// detectAndHandleProviderChange
+// detectAndHandleProviderChange — composite (provider, model) fingerprint
 // ---------------------------------------------------------------------------
 
 describe('VaultSyncService.detectAndHandleProviderChange', () => {
   it('does not truncate on first boot (no stored row)', async () => {
     const service = makeService();
-    // No stored row — readStoredProvider returns null
+    // No stored row — readStoredState returns null
     mockQueryRaw.mockResolvedValue([]);
     process.env['EMBEDDING_PROVIDER'] = 'ollama';
 
@@ -243,25 +301,30 @@ describe('VaultSyncService.detectAndHandleProviderChange', () => {
     expect(mockLogger.warn).not.toHaveBeenCalled();
   });
 
-  it('does not truncate when stored provider matches active provider', async () => {
+  it('does not truncate when provider, model, and recipe version all match', async () => {
     const service = makeService();
-    mockQueryRaw.mockResolvedValue([{ provider: 'ollama' }]);
+    mockQueryRaw.mockResolvedValue([
+      { provider: 'ollama', model: 'bge-m3', recipeVersion: INDEX_RECIPE_VERSION },
+    ]);
     process.env['EMBEDDING_PROVIDER'] = 'ollama';
+    process.env['OLLAMA_EMBEDDING_MODEL'] = 'bge-m3';
 
     await service.detectAndHandleProviderChange();
 
-    const truncateCalled = mockExecuteRaw.mock.calls.some((args) => {
-      const sql = String(args[0]);
-      return sql.includes('TRUNCATE');
-    });
+    const truncateCalled = mockExecuteRaw.mock.calls.some((args) =>
+      String(args[0]).includes('TRUNCATE'),
+    );
     expect(truncateCalled).toBe(false);
     expect(mockLogger.warn).not.toHaveBeenCalled();
   });
 
   it('truncates chunks and deletes vault docs when provider changes', async () => {
     const service = makeService();
-    mockQueryRaw.mockResolvedValue([{ provider: 'ollama' }]);
+    mockQueryRaw.mockResolvedValue([
+      { provider: 'ollama', model: 'bge-m3', recipeVersion: INDEX_RECIPE_VERSION },
+    ]);
     process.env['EMBEDDING_PROVIDER'] = 'openai';
+    process.env['OPENAI_EMBEDDING_MODEL'] = 'text-embedding-3-small';
 
     await service.detectAndHandleProviderChange();
 
@@ -270,10 +333,13 @@ describe('VaultSyncService.detectAndHandleProviderChange', () => {
     expect(allSqlCalls.some((sql) => sql.includes('docs/obsidian-vault/%'))).toBe(true);
   });
 
-  it('truncates and re-indexes when switching to lmstudio (new provider name flows through)', async () => {
+  it('truncates when only the model changes under the same provider', async () => {
     const service = makeService();
-    mockQueryRaw.mockResolvedValue([{ provider: 'ollama' }]);
+    mockQueryRaw.mockResolvedValue([
+      { provider: 'lmstudio', model: 'old-model', recipeVersion: INDEX_RECIPE_VERSION },
+    ]);
     process.env['EMBEDDING_PROVIDER'] = 'lmstudio';
+    process.env['LMSTUDIO_EMBEDDING_MODEL'] = 'bge-m3';
 
     await service.detectAndHandleProviderChange();
 
@@ -281,25 +347,49 @@ describe('VaultSyncService.detectAndHandleProviderChange', () => {
     expect(allSqlCalls.some((sql) => sql.includes('TRUNCATE'))).toBe(true);
     expect(allSqlCalls.some((sql) => sql.includes('docs/obsidian-vault/%'))).toBe(true);
     expect(mockLogger.warn).toHaveBeenCalledWith(
-      expect.stringContaining('Embedding provider changed: ollama → lmstudio; truncating chunks'),
+      expect.stringContaining('lmstudio/old-model'),
       'VaultSyncService',
     );
   });
 
-  it('logs a warning with old → new provider names when provider changes', async () => {
+  it('truncates when only the recipe version changes (same provider + model)', async () => {
     const service = makeService();
-    mockQueryRaw.mockResolvedValue([{ provider: 'ollama' }]);
+    mockQueryRaw.mockResolvedValue([
+      { provider: 'ollama', model: 'bge-m3', recipeVersion: 'v0-old-recipe' },
+    ]);
+    process.env['EMBEDDING_PROVIDER'] = 'ollama';
+    process.env['OLLAMA_EMBEDDING_MODEL'] = 'bge-m3';
+
+    await service.detectAndHandleProviderChange();
+
+    const allSqlCalls = mockExecuteRaw.mock.calls.map((args) => String(args[0]));
+    expect(allSqlCalls.some((sql) => sql.includes('TRUNCATE'))).toBe(true);
+    expect(allSqlCalls.some((sql) => sql.includes('docs/obsidian-vault/%'))).toBe(true);
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      expect.stringContaining(`v0-old-recipe → ollama/bge-m3/${INDEX_RECIPE_VERSION}`),
+      'VaultSyncService',
+    );
+  });
+
+  it('logs a warning with the old → new fingerprint when it changes', async () => {
+    const service = makeService();
+    mockQueryRaw.mockResolvedValue([
+      { provider: 'ollama', model: 'bge-m3', recipeVersion: INDEX_RECIPE_VERSION },
+    ]);
     process.env['EMBEDDING_PROVIDER'] = 'openai';
+    process.env['OPENAI_EMBEDDING_MODEL'] = 'text-embedding-3-small';
 
     await service.detectAndHandleProviderChange();
 
     expect(mockLogger.warn).toHaveBeenCalledWith(
-      expect.stringContaining('Embedding provider changed: ollama → openai; truncating chunks'),
+      expect.stringContaining(
+        `ollama/bge-m3/${INDEX_RECIPE_VERSION} → openai/text-embedding-3-small/${INDEX_RECIPE_VERSION}`,
+      ),
       'VaultSyncService',
     );
   });
 
-  it('upserts the active provider after detection logic', async () => {
+  it('upserts the active fingerprint after detection logic', async () => {
     const service = makeService();
     mockQueryRaw.mockResolvedValue([]);
     process.env['EMBEDDING_PROVIDER'] = 'openai';
@@ -317,5 +407,71 @@ describe('VaultSyncService.detectAndHandleProviderChange', () => {
 
     // Should not throw
     await expect(service.detectAndHandleProviderChange()).resolves.toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// recoverOrphanedPending — crash recovery (AC-06)
+// ---------------------------------------------------------------------------
+
+describe('VaultSyncService.recoverOrphanedPending', () => {
+  it('AC-06: marks stuck docs that have chunks as ready and chunk-less ones as failed', async () => {
+    const service = makeService();
+    // First UPDATE (with-chunks → ready) affects 1 row; second (no-chunks → failed) affects 2.
+    mockExecuteRaw.mockResolvedValueOnce(1).mockResolvedValueOnce(2);
+
+    await service.recoverOrphanedPending();
+
+    const sqlCalls = mockExecuteRaw.mock.calls.map((args) => String(args[0]));
+    const readySql = sqlCalls.find((s) => s.includes("'ready'"));
+    const failedSql = sqlCalls.find((s) => s.includes("'failed'"));
+
+    expect(readySql).toBeDefined();
+    expect(readySql).toContain('EXISTS');
+    expect(readySql).toContain("'pending'");
+    expect(readySql).toContain("'indexing'");
+
+    expect(failedSql).toBeDefined();
+    expect(failedSql).toContain('NOT EXISTS');
+
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('crash recovery'),
+      'VaultSyncService',
+    );
+  });
+
+  it('AC-06: logs nothing when there are no orphaned rows', async () => {
+    const service = makeService();
+    mockExecuteRaw.mockResolvedValue(0);
+
+    await service.recoverOrphanedPending();
+
+    expect(mockLogger.warn).not.toHaveBeenCalled();
+  });
+
+  it('AC-06: swallows DB errors (logs error, does not throw)', async () => {
+    const service = makeService();
+    mockExecuteRaw.mockRejectedValue(new Error('db down'));
+
+    await expect(service.recoverOrphanedPending()).resolves.toBeUndefined();
+    expect(mockLogger.error).toHaveBeenCalled();
+  });
+
+  it('AC-06: runProviderCheckAndStartupScan runs recovery after the scan', async () => {
+    const service = makeService();
+    const order: string[] = [];
+    priv(service).detectAndHandleProviderChange = jest
+      .fn()
+      .mockImplementation(async () => void order.push('detect'));
+    priv(service).runStartupScan = jest
+      .fn()
+      .mockImplementation(async () => void order.push('scan'));
+    priv(service).recoverOrphanedPending = jest
+      .fn()
+      .mockImplementation(async () => void order.push('recover'));
+
+    await service.runProviderCheckAndStartupScan();
+
+    expect(order).toEqual(['detect', 'scan', 'recover']);
   });
 });

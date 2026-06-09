@@ -3,10 +3,14 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import type { AxiosError } from 'axios';
+import {
+  assertEmbeddingDimension,
+  DEFAULT_MULTILINGUAL_EMBEDDING_MODEL,
+} from '../embeddings.constants';
 import { EmbeddingProvider } from './embedding-provider.interface';
 
 const DEFAULT_LMSTUDIO_URL = 'http://localhost:1234/v1';
-const DEFAULT_LMSTUDIO_MODEL = 'text-embedding-nomic-embed-text-v1.5';
+const DEFAULT_LMSTUDIO_MODEL = DEFAULT_MULTILINGUAL_EMBEDDING_MODEL;
 
 type LmStudioEmbeddingObject = {
   embedding: number[];
@@ -78,7 +82,7 @@ export class LmStudioEmbeddingProvider implements EmbeddingProvider {
     }
     const duration = Date.now() - start;
     this.logger.debug(`LM Studio embed: ${duration}ms`, 'LmStudioEmbeddingProvider');
-    return data.data[0].embedding;
+    return assertEmbeddingDimension(data.data[0].embedding, this.model);
   }
 
   async generateBatch(texts: string[]): Promise<number[][]> {
@@ -101,6 +105,6 @@ export class LmStudioEmbeddingProvider implements EmbeddingProvider {
     return data.data
       .slice()
       .sort((a, b) => a.index - b.index)
-      .map((d) => d.embedding);
+      .map((d) => assertEmbeddingDimension(d.embedding, this.model));
   }
 }

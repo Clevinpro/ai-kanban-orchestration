@@ -1,7 +1,13 @@
 import axios from 'axios';
 import type * as AxiosModule from 'axios';
 import type { AxiosError } from 'axios';
+import { EXPECTED_EMBEDDING_DIM } from '../embeddings.constants';
 import { OpenAiEmbeddingProvider } from './openai-embedding.provider';
+
+// A valid 1024-dim embedding that satisfies the dimension guard.
+function dimVector(seed = 0.001): number[] {
+  return Array.from({ length: EXPECTED_EMBEDDING_DIM }, (_, i) => i * seed);
+}
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -71,7 +77,7 @@ describe('OpenAiEmbeddingProvider.generateEmbedding', () => {
   beforeEach(() => jest.clearAllMocks());
 
   it('POSTs to OpenAI with correct body and returns embedding', async () => {
-    const embedding = Array.from({ length: 768 }, (_, i) => i * 0.001);
+    const embedding = dimVector();
     mockedAxiosPost.mockResolvedValueOnce({
       data: { data: [{ embedding, index: 0, object: 'embedding' }] },
     });
@@ -88,7 +94,7 @@ describe('OpenAiEmbeddingProvider.generateEmbedding', () => {
     expect(url).toBe('https://api.openai.com/v1/embeddings');
     expect(body.input).toBe('hello world');
     expect(body.model).toBe('text-embedding-3-small');
-    expect(body.dimensions).toBe(768);
+    expect(body.dimensions).toBe(1024);
     expect((config as { headers: Record<string, string> }).headers['Authorization']).toMatch(
       /^Bearer /,
     );
@@ -96,7 +102,7 @@ describe('OpenAiEmbeddingProvider.generateEmbedding', () => {
   });
 
   it('does not include the API key in log output', async () => {
-    const embedding = [0.1, 0.2, 0.3];
+    const embedding = dimVector();
     mockedAxiosPost.mockResolvedValueOnce({
       data: { data: [{ embedding, index: 0, object: 'embedding' }] },
     });
@@ -119,7 +125,7 @@ describe('OpenAiEmbeddingProvider.generateEmbedding', () => {
   });
 
   it('uses custom model from OPENAI_EMBEDDING_MODEL when set', async () => {
-    const embedding = [0.5];
+    const embedding = dimVector(0.5);
     mockedAxiosPost.mockResolvedValueOnce({
       data: { data: [{ embedding, index: 0, object: 'embedding' }] },
     });
@@ -140,8 +146,8 @@ describe('OpenAiEmbeddingProvider.generateBatch', () => {
   beforeEach(() => jest.clearAllMocks());
 
   it('POSTs all texts in a single HTTP call and returns all embeddings', async () => {
-    const emb1 = [0.1, 0.2];
-    const emb2 = [0.3, 0.4];
+    const emb1 = dimVector(0.001);
+    const emb2 = dimVector(0.002);
     mockedAxiosPost.mockResolvedValueOnce({
       data: {
         data: [
@@ -157,14 +163,14 @@ describe('OpenAiEmbeddingProvider.generateBatch', () => {
     expect(mockedAxiosPost).toHaveBeenCalledTimes(1);
     const body = mockedAxiosPost.mock.calls[0][1] as Record<string, unknown>;
     expect(body.input).toEqual(['first', 'second']);
-    expect(body.dimensions).toBe(768);
+    expect(body.dimensions).toBe(1024);
     expect(result).toEqual([emb1, emb2]);
   });
 
   it('sorts embeddings by index field when API returns them out of order', async () => {
-    const emb0 = [0.1, 0.2];
-    const emb1 = [0.3, 0.4];
-    const emb2 = [0.5, 0.6];
+    const emb0 = dimVector(0.001);
+    const emb1 = dimVector(0.002);
+    const emb2 = dimVector(0.003);
     // API returns objects in reverse order: index 2, 0, 1
     mockedAxiosPost.mockResolvedValueOnce({
       data: {

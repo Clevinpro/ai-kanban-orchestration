@@ -1,7 +1,13 @@
 import axios from 'axios';
 import type * as AxiosModule from 'axios';
 import type { AxiosError } from 'axios';
+import { EXPECTED_EMBEDDING_DIM } from '../embeddings.constants';
 import { OllamaEmbeddingProvider } from './ollama-embedding.provider';
+
+// A valid 1024-dim embedding that satisfies the dimension guard.
+function dimVector(seed = 0.001): number[] {
+  return Array.from({ length: EXPECTED_EMBEDDING_DIM }, (_, i) => i * seed);
+}
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -64,14 +70,14 @@ describe('OllamaEmbeddingProvider — construction', () => {
     expect(() => makeProvider({ OLLAMA_URL: undefined as unknown as string })).not.toThrow();
   });
 
-  it('defaults embeddingModel to nomic-embed-text when OLLAMA_EMBEDDING_MODEL is not set', () => {
+  it('defaults embeddingModel to bge-m3 when OLLAMA_EMBEDDING_MODEL is not set', () => {
     expect(() =>
       makeProvider({ OLLAMA_EMBEDDING_MODEL: undefined as unknown as string }),
     ).not.toThrow();
   });
 
   it('uses custom model from OLLAMA_EMBEDDING_MODEL when set', async () => {
-    const embedding = [0.1, 0.2, 0.3];
+    const embedding = dimVector();
     mockedAxios.post.mockResolvedValueOnce({ data: { embedding } });
 
     const provider = makeProvider({ OLLAMA_EMBEDDING_MODEL: 'mxbai-embed-large' });
@@ -90,7 +96,7 @@ describe('OllamaEmbeddingProvider.generateEmbedding', () => {
   beforeEach(() => jest.clearAllMocks());
 
   it('POSTs to the correct Ollama endpoint with model and prompt', async () => {
-    const embedding = [0.1, 0.2, 0.3];
+    const embedding = dimVector();
     mockedAxios.post.mockResolvedValueOnce({ data: { embedding } });
 
     const provider = makeProvider();
@@ -99,24 +105,24 @@ describe('OllamaEmbeddingProvider.generateEmbedding', () => {
     expect(mockedAxios.post).toHaveBeenCalledTimes(1);
     const [url, body] = mockedAxios.post.mock.calls[0] as [string, Record<string, unknown>];
     expect(url).toBe('http://localhost:11434/api/embeddings');
-    expect(body.model).toBe('nomic-embed-text');
+    expect(body.model).toBe('bge-m3');
     expect(body.prompt).toBe('hello world');
     expect(result).toEqual(embedding);
   });
 
   it('returns the embedding array from the response', async () => {
-    const embedding = Array.from({ length: 384 }, (_, i) => i * 0.001);
+    const embedding = dimVector();
     mockedAxios.post.mockResolvedValueOnce({ data: { embedding } });
 
     const provider = makeProvider();
     const result = await provider.generateEmbedding('embedding text');
 
-    expect(result).toHaveLength(384);
+    expect(result).toHaveLength(EXPECTED_EMBEDDING_DIM);
     expect(result).toEqual(embedding);
   });
 
   it('uses the custom OLLAMA_URL when configured', async () => {
-    const embedding = [0.5, 0.6];
+    const embedding = dimVector(0.5);
     mockedAxios.post.mockResolvedValueOnce({ data: { embedding } });
 
     const provider = makeProvider({ OLLAMA_URL: 'http://ollama-service:11434' });
@@ -127,7 +133,7 @@ describe('OllamaEmbeddingProvider.generateEmbedding', () => {
   });
 
   it('logs the embed duration with provider name (AC-08)', async () => {
-    mockedAxios.post.mockResolvedValueOnce({ data: { embedding: [0.1, 0.2] } });
+    mockedAxios.post.mockResolvedValueOnce({ data: { embedding: dimVector() } });
 
     const provider = makeProvider();
     await provider.generateEmbedding('hello');
@@ -135,6 +141,43 @@ describe('OllamaEmbeddingProvider.generateEmbedding', () => {
     expect(lastLogger.debug).toHaveBeenCalledWith(
       expect.stringMatching(/^Ollama embed: \d+ms$/),
       'OllamaEmbeddingProvider',
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// generateEmbedding — dimension guard at the provider boundary
+// ---------------------------------------------------------------------------
+
+describe('OllamaEmbeddingProvider.generateEmbedding — dimension guard', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('returns the vector when the provider yields exactly 1024 dimensions', async () => {
+    const embedding = dimVector();
+    mockedAxios.post.mockResolvedValueOnce({ data: { embedding } });
+
+    const provider = makeProvider();
+    await expect(provider.generateEmbedding('ok')).resolves.toHaveLength(EXPECTED_EMBEDDING_DIM);
+  });
+
+  it('throws the exact mismatch error when the provider yields a non-1024 vector', async () => {
+    const wrongDim = Array.from({ length: 768 }, () => 0);
+    mockedAxios.post.mockResolvedValueOnce({ data: { embedding: wrongDim } });
+
+    const provider = makeProvider();
+    await expect(provider.generateEmbedding('bad')).rejects.toThrow(
+      'Embedding dimension mismatch: model=bge-m3, expected=1024, got=768',
+    );
+  });
+
+  it('applies the guard inside generateBatch so a misloaded model fails fast', async () => {
+    mockedAxios.post
+      .mockResolvedValueOnce({ data: { embedding: dimVector() } })
+      .mockResolvedValueOnce({ data: { embedding: Array.from({ length: 384 }, () => 0) } });
+
+    const provider = makeProvider();
+    await expect(provider.generateBatch(['ok', 'bad'])).rejects.toThrow(
+      'Embedding dimension mismatch: model=bge-m3, expected=1024, got=384',
     );
   });
 });
@@ -179,9 +222,9 @@ describe('OllamaEmbeddingProvider.generateBatch', () => {
   beforeEach(() => jest.clearAllMocks());
 
   it('calls generateEmbedding for each text in parallel', async () => {
-    const emb1 = [0.1, 0.2];
-    const emb2 = [0.3, 0.4];
-    const emb3 = [0.5, 0.6];
+    const emb1 = dimVector(0.001);
+    const emb2 = dimVector(0.002);
+    const emb3 = dimVector(0.003);
 
     mockedAxios.post
       .mockResolvedValueOnce({ data: { embedding: emb1 } })
@@ -204,7 +247,7 @@ describe('OllamaEmbeddingProvider.generateBatch', () => {
   });
 
   it('makes N separate HTTP calls for N texts', async () => {
-    mockedAxios.post.mockResolvedValue({ data: { embedding: [0.1] } });
+    mockedAxios.post.mockResolvedValue({ data: { embedding: dimVector() } });
 
     const provider = makeProvider();
     await provider.generateBatch(['a', 'b', 'c', 'd', 'e']);
@@ -214,7 +257,7 @@ describe('OllamaEmbeddingProvider.generateBatch', () => {
 
   it('propagates an error when any batch item fails', async () => {
     mockedAxios.post
-      .mockResolvedValueOnce({ data: { embedding: [0.1] } })
+      .mockResolvedValueOnce({ data: { embedding: dimVector() } })
       .mockRejectedValueOnce(new Error('model timeout'));
 
     const provider = makeProvider();
@@ -222,7 +265,7 @@ describe('OllamaEmbeddingProvider.generateBatch', () => {
   });
 
   it('logs the batch embed duration with provider name (AC-08)', async () => {
-    mockedAxios.post.mockResolvedValue({ data: { embedding: [0.1] } });
+    mockedAxios.post.mockResolvedValue({ data: { embedding: dimVector() } });
 
     const provider = makeProvider();
     await provider.generateBatch(['a', 'b']);
