@@ -4,13 +4,13 @@ export function formatDuration(startedAt, completedAt) {
   if (!startedAt || !completedAt) return null;
   const ms = new Date(completedAt) - new Date(startedAt);
   if (isNaN(ms) || ms < 0) return null;
-  const totalMin = Math.floor(ms / 60000);
+  const totalMin = Math.ceil(ms / 60000);
   const days = Math.floor(totalMin / 1440);
   const hours = Math.floor((totalMin % 1440) / 60);
   const mins = totalMin % 60;
   if (days > 0) return `${days}d ${hours}h`;
   if (hours > 0) return `${hours}h ${mins}m`;
-  return `${totalMin < 1 ? '< 1' : mins}m`;
+  return `${mins}m`;
 }
 
 export function fmtDate(iso) {
