@@ -3,7 +3,6 @@ import { KafkaModule } from '@ai-platform/kafka';
 import { LoggerModule } from '@ai-platform/shared';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { AgentModule } from '../agent/agent.module';
 import { AiModule } from '../ai/ai.module';
 import { KnowledgeModule } from '../knowledge/knowledge.module';
 import { VaultModule } from '../vault/vault.module';
@@ -19,7 +18,6 @@ import { VaultModule } from '../vault/vault.module';
       groupId: process.env.KAFKA_GROUP_ID ?? 'ai-service',
     }),
     AiModule,
-    AgentModule,
     KnowledgeModule,
     VaultModule,
   ],

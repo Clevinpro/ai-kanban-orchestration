@@ -37,13 +37,30 @@ export class AiController {
       conversationId,
     });
 
+    // Additive payload: forward agent fields only when provided so that an
+    // omitted mode publishes the exact same shape as before.
+    const value: Record<string, unknown> = {
+      userId,
+      message: dto.message,
+      conversationId,
+    };
+
+    if (dto.mode !== undefined) {
+      value.mode = dto.mode;
+    }
+    if (dto.maxIterations !== undefined) {
+      value.maxIterations = dto.maxIterations;
+    }
+    if (dto.tokenBudget !== undefined) {
+      value.tokenBudget = dto.tokenBudget;
+    }
+    if (dto.timeoutMs !== undefined) {
+      value.timeoutMs = dto.timeoutMs;
+    }
+
     await this.kafkaProducer.publish(KAFKA_TOPICS.AI_REQUEST, {
       topic: KAFKA_TOPICS.AI_REQUEST,
-      value: {
-        userId,
-        message: dto.message,
-        conversationId,
-      },
+      value,
     });
 
     this.logger.log('AI chat request queued', AiController.name, {
