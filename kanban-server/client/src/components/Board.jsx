@@ -91,8 +91,20 @@ function TestVerdictBadge({ verdict }) {
   return null;
 }
 
-export default function Board({ tasks, dispatch, autoRun, setAutoRun, epicTests = {} }) {
+export default function Board({ tasks, dispatch, autoRunEpics = {}, toggleEpicAutoRun, autoRunNextEpic, setAutoRunNextEpic, epicTests = {} }) {
   const [openEpics, setOpenEpics] = useState({});
+
+  // The next epic the footer chain would start: first (alphabetical) epic that
+  // is still entirely unstarted (no task outside Ready) — so the currently
+  // active epic, which still has ready tasks, is NOT shown as "next".
+  const startedEpics = new Set();
+  for (const col of COLUMN_ORDER) {
+    if (col === 'readyForDevelop') continue;
+    for (const t of tasks[col] || []) startedEpics.add(t.epic);
+  }
+  const nextEpic = [...new Set((tasks.readyForDevelop || []).map((t) => t.epic))]
+    .filter((e) => !startedEpics.has(e))
+    .sort()[0];
 
   function toggleEpic(epic) {
     setOpenEpics((prev) => ({ ...prev, [epic]: !prev[epic] }));
@@ -258,6 +270,81 @@ export default function Board({ tasks, dispatch, autoRun, setAutoRun, epicTests 
                         </div>
                       );
                     });
+                  })() : status === 'readyForDevelop' ? (() => {
+                    // Group READY tasks by epic into collapsible (default-open) groups,
+                    // each with its own auto-run toggle. Open-state is namespaced
+                    // 'ready:<epic>' so it never collides with the done column's groups.
+                    const byEpic = groupByEpic(tasks.readyForDevelop || []);
+                    const ordered = Object.entries(byEpic).sort(([a], [b]) => a.localeCompare(b));
+                    let globalIndex = 0;
+                    return ordered.map(([epic, epicTasks]) => {
+                      const sorted = [...epicTasks].sort((a, b) => a.id.localeCompare(b.id));
+                      const isOpen = openEpics['ready:' + epic] !== false; // default open
+                      const epicStart = globalIndex;
+                      globalIndex += sorted.length;
+                      const on = !!autoRunEpics[epic];
+                      const nextId = sorted[0]?.id;
+                      return (
+                        <div key={epic} className="mb-1.5 rounded">
+                          <div className={`w-full px-1.5 py-1 ${isOpen ? 'rounded-t' : 'rounded'} text-[11px] font-semibold uppercase tracking-wide bg-blue-100 text-blue-800`}>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                onClick={() => toggleEpic('ready:' + epic)}
+                                className="flex items-center gap-1.5 flex-1 min-w-0 uppercase hover:opacity-80"
+                              >
+                                <svg
+                                  className={`w-3 h-3 flex-shrink-0 transition-transform ${isOpen ? 'rotate-90' : ''}`}
+                                  fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
+                                >
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                                </svg>
+                                <span className="truncate">{epic}</span>
+                              </button>
+                              <span className="font-normal opacity-70">{sorted.length}</span>
+                              <button
+                                onClick={() => toggleEpicAutoRun(epic)}
+                                title="Auto-run the next task in this epic when the previous is done"
+                                className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors flex-shrink-0 ${on ? 'bg-green-500' : 'bg-gray-300'}`}
+                              >
+                                <span className={`inline-block h-3 w-3 rounded-full bg-white shadow transition-transform ${on ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
+                              </button>
+                            </div>
+                            {on && nextId && (
+                              <div className="mt-0.5 text-[10px] font-medium normal-case text-green-700">
+                                · next: {nextId}
+                              </div>
+                            )}
+                          </div>
+                          {/* grid-rows 0fr→1fr: smooth expand/collapse without JS height math */}
+                          <div
+                            className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${
+                              isOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
+                            }`}
+                          >
+                            <div
+                              className={`overflow-hidden min-h-0 rounded-b ${
+                                isOpen ? 'p-1 pt-0 bg-white border border-t-0 border-blue-200' : ''
+                              }`}
+                            >
+                              {sorted.map((task, i) => (
+                                <Draggable draggableId={task.epic + '/' + task.id} index={epicStart + i} key={task.epic + '/' + task.id}>
+                                  {(provided) => (
+                                    <div
+                                      ref={provided.innerRef}
+                                      {...provided.draggableProps}
+                                      {...provided.dragHandleProps}
+                                      className="cursor-grab mt-1 [&>*]:mb-0"
+                                    >
+                                      <TaskCard task={task} isDone={false} />
+                                    </div>
+                                  )}
+                                </Draggable>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    });
                   })() : (tasks[status] || []).map((task, index) => (
                     <Draggable draggableId={task.epic + '/' + task.id} index={index} key={task.epic + '/' + task.id}>
                       {(provided) => (
@@ -282,17 +369,15 @@ export default function Board({ tasks, dispatch, autoRun, setAutoRun, epicTests 
       </div>
       <div className="sticky bottom-0 bg-white border-t border-gray-200 px-4 py-2 flex items-center gap-3">
         <button
-          onClick={() => setAutoRun((v) => !v)}
-          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${autoRun ? 'bg-green-500' : 'bg-gray-300'}`}
+          onClick={() => setAutoRunNextEpic((v) => !v)}
+          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${autoRunNextEpic ? 'bg-green-500' : 'bg-gray-300'}`}
         >
-          <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform ${autoRun ? 'translate-x-4' : 'translate-x-1'}`} />
+          <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform ${autoRunNextEpic ? 'translate-x-4' : 'translate-x-1'}`} />
         </button>
         <span className="text-xs text-gray-600">
-          Auto-run next task when previous is done
-          {autoRun && (tasks.readyForDevelop?.length ?? 0) > 0 && (
-            <span className="ml-2 text-green-600 font-medium">
-              · next: {[...tasks.readyForDevelop].sort((a, b) => a.id.localeCompare(b.id))[0]?.id}
-            </span>
+          Auto-run next epic
+          {autoRunNextEpic && nextEpic && (
+            <span className="ml-2 text-green-600 font-medium">: {nextEpic}</span>
           )}
         </span>
       </div>

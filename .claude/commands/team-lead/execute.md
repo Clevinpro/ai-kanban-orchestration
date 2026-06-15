@@ -86,7 +86,7 @@ At the top of this step, declare three in-context loop counters:
 ```
 SET qa_cycle = 0        (cap: 3)
 SET tlc_cycle = 0       (cap: 2)
-SET cr_cycle = 0        (cap: 2)
+SET cr_cycle = 0        (cap: 3)
 ```
 
 Determine agent names from the `repo` field in the task frontmatter:
@@ -199,8 +199,8 @@ Set `task_path` = the file path found in STEP 1.
 
   - If receipt contains `"CHANGES_REQUESTED"`:
     - Increment `cr_cycle`.
-    - If `cr_cycle >= 2`:
-      - Print: `CodeReview CHANGES_REQUESTED cap reached (2 cycles). Retry / Skip / Abort?`
+    - If `cr_cycle >= 3`:
+      - Print: `CodeReview CHANGES_REQUESTED cap reached (3 cycles). Retry / Skip / Abort?`
       - Wait for user response.
         - **Retry**: reset `cr_cycle = 0`, Edit the task file: change `status: inReview` to `status: inProgress`. Continue INNER LOOP from Developer Stage.
         - **Skip**: treat as APPROVED (clear CHANGES_REQUESTED signal). Reset `cr_cycle = 0`. Continue to QA Stage.

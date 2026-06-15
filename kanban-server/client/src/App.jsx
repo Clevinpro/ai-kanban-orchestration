@@ -62,15 +62,34 @@ function boardReducer(state, action) {
 
 export default function App() {
   const [state, dispatch] = useReducer(boardReducer, initialState);
-  const [autoRun, setAutoRun] = useState(() => localStorage.getItem('kanban-autoRun') === 'true');
+  // Per-epic auto-run: epic -> bool. When on, completing a task in that epic
+  // auto-launches the epic's next readyForDevelop task (and, once the whole epic
+  // is done, the /team-lead:test gate). Each epic is independent.
+  const [autoRunEpics, setAutoRunEpics] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('kanban-autoRunEpics') || '{}');
+    } catch {
+      return {};
+    }
+  });
+  const toggleEpicAutoRun = (epic) =>
+    setAutoRunEpics((prev) => ({ ...prev, [epic]: !prev[epic] }));
+  // Footer-level chain: when an epic fully completes, auto-start the next epic
+  // (enable its per-epic auto-run + launch its first task). Persisted separately.
+  const [autoRunNextEpic, setAutoRunNextEpic] = useState(
+    () => localStorage.getItem('kanban-autoRunNextEpic') === 'true',
+  );
   // epic -> { verdict: 'IN-PROGRESS' | 'PASS' | 'FAIL', startedAt, endedAt }.
   // Fed by epic-test SSE events (initial snapshot on connect + live
   // TEST-REPORT.md changes).
   const [epicTests, setEpicTests] = useState({});
 
   useEffect(() => {
-    localStorage.setItem('kanban-autoRun', autoRun);
-  }, [autoRun]);
+    localStorage.setItem('kanban-autoRunEpics', JSON.stringify(autoRunEpics));
+  }, [autoRunEpics]);
+  useEffect(() => {
+    localStorage.setItem('kanban-autoRunNextEpic', autoRunNextEpic);
+  }, [autoRunNextEpic]);
   const esRef = useRef(null);
   const retryRef = useRef(null);
   // Tracks the last-seen status of every task (uid -> status). Used to detect a
@@ -86,50 +105,92 @@ export default function App() {
   // Detect tasks that just transitioned into done and trigger the next
   // readyForDevelop when autoRun is on. Uses state directly (not a stale ref).
   useEffect(() => {
-    if (autoRun) {
-      const newlyDone = (state.done || []).filter((t) => {
-        const prev = prevStatusRef.current.get(taskUid(t));
-        return prev !== undefined && prev !== 'done';
-      });
-      if (newlyDone.length > 0) {
-        const readyTasks = (state.readyForDevelop || [])
-          .slice()
-          .sort((a, b) => a.id.localeCompare(b.id));
-        if (readyTasks.length > 0) {
-          const next = readyTasks[0];
-          dispatch({ type: 'DRAG_OPTIMISTIC', taskUid: taskUid(next), newStatus: 'inProgress' });
-          fetch('/tasks/' + next.epic + '/' + next.id + '/status', {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ status: 'inProgress' }),
-          }).catch(() => {
-            dispatch({ type: 'DRAG_REVERT', taskId: next.id, taskEpic: next.epic, originalStatus: 'readyForDevelop' });
+    const newlyDone = (state.done || []).filter((t) => {
+      const prev = prevStatusRef.current.get(taskUid(t));
+      return prev !== undefined && prev !== 'done';
+    });
+    if (newlyDone.length > 0) {
+      const epicsJustDone = new Set(newlyDone.map((t) => t.epic));
+
+      // Per-epic auto-run: for each epic that just had a done-transition AND has
+      // its toggle on, launch that epic's own next readyForDevelop task. Epics
+      // without the toggle (or other epics) are never touched.
+      for (const epic of epicsJustDone) {
+        if (!autoRunEpics[epic]) continue;
+        const next = (state.readyForDevelop || [])
+          .filter((t) => t.epic === epic)
+          .sort((a, b) => a.id.localeCompare(b.id))[0];
+        if (!next) continue;
+        dispatch({ type: 'DRAG_OPTIMISTIC', taskUid: taskUid(next), newStatus: 'inProgress' });
+        fetch('/tasks/' + next.epic + '/' + next.id + '/status', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'inProgress' }),
+        }).catch(() => {
+          dispatch({ type: 'DRAG_REVERT', taskId: next.id, taskEpic: next.epic, originalStatus: 'readyForDevelop' });
+        });
+      }
+
+      // Per-epic completion: when every task of a just-touched epic (toggle on)
+      // is now in done, launch the /team-lead:test gate once.
+      const epicTotals = new Map(); // epic -> { total, done }
+      for (const col of COLUMN_ORDER) {
+        for (const t of state[col] || []) {
+          const e = epicTotals.get(t.epic) || { total: 0, done: 0 };
+          e.total += 1;
+          if (col === 'done') e.done += 1;
+          epicTotals.set(t.epic, e);
+        }
+      }
+      for (const epic of epicsJustDone) {
+        if (!autoRunEpics[epic]) continue;
+        const e = epicTotals.get(epic);
+        // Skip when a gate is already running (IN-PROGRESS) or the epic already
+        // passed (PASS) — the server's 409 guards cover both; this avoids the noise.
+        const v = epicTests[epic]?.verdict;
+        if (v === 'IN-PROGRESS' || v === 'PASS') continue;
+        if (e && e.total > 0 && e.done === e.total && !testedEpicsRef.current.has(epic)) {
+          testedEpicsRef.current.add(epic);
+          fetch('/epics/' + epic + '/test', { method: 'POST' }).catch(() => {
+            testedEpicsRef.current.delete(epic); // allow retry on failure
           });
         }
+      }
 
-        // Per-epic completion: when every task of an epic that just had a
-        // done-transition is now in done, launch the /team-lead:test gate once.
-        const epicTotals = new Map(); // epic -> { total, done }
-        for (const col of COLUMN_ORDER) {
-          for (const t of state[col] || []) {
-            const e = epicTotals.get(t.epic) || { total: 0, done: 0 };
-            e.total += 1;
-            if (col === 'done') e.done += 1;
-            epicTotals.set(t.epic, e);
-          }
-        }
-        const epicsJustTouched = new Set(newlyDone.map((t) => t.epic));
-        for (const epic of epicsJustTouched) {
+      // Footer chain: when a just-completed epic is now fully done, auto-start the
+      // next epic (alphabetical) that still has ready tasks — enable its per-epic
+      // auto-run and launch its first task so the next epic runs through.
+      if (autoRunNextEpic) {
+        const fullyDoneNow = [...epicsJustDone].some((epic) => {
           const e = epicTotals.get(epic);
-          // Skip when a gate is already running (IN-PROGRESS) or the epic already
-          // passed (PASS) — the server's 409 guards cover both; this avoids the noise.
-          const v = epicTests[epic]?.verdict;
-          if (v === 'IN-PROGRESS' || v === 'PASS') continue;
-          if (e && e.total > 0 && e.done === e.total && !testedEpicsRef.current.has(epic)) {
-            testedEpicsRef.current.add(epic);
-            fetch('/epics/' + epic + '/test', { method: 'POST' }).catch(() => {
-              testedEpicsRef.current.delete(epic); // allow retry on failure
-            });
+          return e && e.total > 0 && e.done === e.total;
+        });
+        if (fullyDoneNow) {
+          // Next epic = first unstarted epic (no task outside Ready), so we never
+          // re-pick the epic that just finished or one already in flight.
+          const startedEpics = new Set();
+          for (const col of COLUMN_ORDER) {
+            if (col === 'readyForDevelop') continue;
+            for (const t of state[col] || []) startedEpics.add(t.epic);
+          }
+          const nextEpic = [...new Set((state.readyForDevelop || []).map((t) => t.epic))]
+            .filter((e) => !startedEpics.has(e))
+            .sort()[0];
+          if (nextEpic) {
+            setAutoRunEpics((prev) => (prev[nextEpic] ? prev : { ...prev, [nextEpic]: true }));
+            const next = (state.readyForDevelop || [])
+              .filter((t) => t.epic === nextEpic)
+              .sort((a, b) => a.id.localeCompare(b.id))[0];
+            if (next) {
+              dispatch({ type: 'DRAG_OPTIMISTIC', taskUid: taskUid(next), newStatus: 'inProgress' });
+              fetch('/tasks/' + next.epic + '/' + next.id + '/status', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: 'inProgress' }),
+              }).catch(() => {
+                dispatch({ type: 'DRAG_REVERT', taskId: next.id, taskEpic: next.epic, originalStatus: 'readyForDevelop' });
+              });
+            }
           }
         }
       }
@@ -147,7 +208,7 @@ export default function App() {
     }
     for (const epic of epicHasOpen) testedEpicsRef.current.delete(epic);
     prevStatusRef.current = nextStatus;
-  }, [state, autoRun, epicTests]);
+  }, [state, autoRunEpics, autoRunNextEpic, epicTests]);
 
   useEffect(() => {
     function connect() {
@@ -186,5 +247,15 @@ export default function App() {
     };
   }, [dispatch]);
 
-  return <Board tasks={state} dispatch={dispatch} autoRun={autoRun} setAutoRun={setAutoRun} epicTests={epicTests} />;
+  return (
+    <Board
+      tasks={state}
+      dispatch={dispatch}
+      autoRunEpics={autoRunEpics}
+      toggleEpicAutoRun={toggleEpicAutoRun}
+      autoRunNextEpic={autoRunNextEpic}
+      setAutoRunNextEpic={setAutoRunNextEpic}
+      epicTests={epicTests}
+    />
+  );
 }
