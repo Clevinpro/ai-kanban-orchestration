@@ -72,6 +72,22 @@ if command -v docker >/dev/null 2>&1; then
   (cd "$BE_DIR" && docker compose up -d) >>"$BE_LOG" 2>&1 || log "WARN: docker compose up failed — continuing (infra may already be running)"
 fi
 
+# --- 1b. apply migrations for BE epics ------------------------------------
+# A finished BE epic may have added Prisma migrations; apply them before the
+# backend boots so live verification runs against the up-to-date schema.
+# `migrate deploy` only (idempotent, applies committed migrations) — never
+# `migrate dev`, which can drop the raw trgm/hnsw hybrid-search indexes.
+# Skipped for FE-only epics (the grep below finds no `repo: be` tasks).
+EPIC_DIR="$WORK_DIR/.planning/work/$EPIC"
+if grep -rqE '^repo:[[:space:]]*be[[:space:]]*$' "$EPIC_DIR"/TASK-*.md 2>/dev/null; then
+  log "BE epic — applying Prisma migrations (migrate deploy)..."
+  if (cd "$BE_DIR" && npx --no-install prisma migrate deploy && npx --no-install prisma generate >/dev/null 2>&1) >>"$BE_LOG" 2>&1; then
+    log "migrations applied + client regenerated"
+  else
+    log "WARN: prisma migrate deploy failed — see $BE_LOG (backend may boot against a stale schema)"
+  fi
+fi
+
 # Free any stragglers from a previous run so boot doesn't EADDRINUSE.
 free_ports "${BE_PORTS[@]}" "${FE_PORTS[@]}"
 

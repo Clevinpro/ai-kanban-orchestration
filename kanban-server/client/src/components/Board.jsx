@@ -194,6 +194,9 @@ export default function Board({ tasks, dispatch, autoRunEpics = {}, toggleEpicAu
                     return ordered.map(([epic, epicTasks]) => {
                       const isOpen = !!openEpics[epic];
                       const fullyDone = epicFullyDone(epic, tasks);
+                      // Investigation epics (repo: inv, a single RESEARCH.md card)
+                      // never run team-lead:test — hide the gate button/verdict.
+                      const isInvEpic = epicTasks.length > 0 && epicTasks.every((t) => t.repo === 'inv');
                       const epicStart = globalIndex;
                       globalIndex += epicTasks.length;
                       const test = epicTests[epic];
@@ -241,8 +244,9 @@ export default function Board({ tasks, dispatch, autoRunEpics = {}, toggleEpicAu
                               </svg>
                               <span className="truncate">{epic}</span>
                             </button>
-                            <TestVerdictBadge verdict={verdict} />
+                            {!isInvEpic && <TestVerdictBadge verdict={verdict} />}
                             <span className="font-normal opacity-70">{epicTasks.length}</span>
+                            {!isInvEpic && (
                             <button
                               onClick={() => runEpicTest(epic)}
                               disabled={testBlocked}
@@ -255,6 +259,7 @@ export default function Board({ tasks, dispatch, autoRunEpics = {}, toggleEpicAu
                                 <path d="M8 5v14l11-7z" />
                               </svg>
                             </button>
+                            )}
                           </div>
                           {isOpen && (times?.startedAt || test?.startedAt || test?.endedAt) && (
                             <div className="mt-1 pt-1 border-t border-current/20 text-[10px] flex flex-col gap-0.5">

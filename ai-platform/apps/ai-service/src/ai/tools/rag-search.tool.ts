@@ -27,15 +27,24 @@ export const RAG_SEARCH_TOOL_DESCRIPTION =
  * @param searchService The search service providing similarity search + context
  *   formatting. Injected as a closure dependency — the tool performs no direct
  *   DB access of its own.
+ * @param filePathPrefix Optional document path prefix to scope retrieval to a
+ *   subset of the index (e.g. technical docs only). When omitted, the whole
+ *   index is searched.
  * @returns A {@link Tool} ready to register in the {@link ToolRegistry}.
  */
-export function createRagSearchTool(searchService: SearchService): Tool {
+export function createRagSearchTool(
+  searchService: SearchService,
+  filePathPrefix?: string,
+): Tool {
   return {
     name: RAG_SEARCH_TOOL_NAME,
     description: RAG_SEARCH_TOOL_DESCRIPTION,
 
     async run(input: string, _ctx: ToolContext): Promise<string> {
-      const chunks = await searchService.similaritySearch(input);
+      const chunks =
+        filePathPrefix !== undefined
+          ? await searchService.similaritySearch(input, 6, filePathPrefix)
+          : await searchService.similaritySearch(input);
       return searchService.formatContext(chunks);
     },
   };

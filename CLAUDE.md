@@ -23,6 +23,7 @@ Single repository, three services co-located at workspace root:
 - Task files live at `.planning/work/<epic-name>/TASK-XXX.md`
 - Task ID format: `TASK-001` (three-digit zero-padded)
 - The `epic` field in frontmatter must match the parent directory name
+- **Investigation epics** use a single `.planning/work/<epic-name>/RESEARCH.md` (`id: RESEARCH`, `repo: inv`) instead of TASK files — see **Investigation Epics** below.
 
 ## Agent Workflow Entry Points
 
@@ -32,6 +33,13 @@ Single repository, three services co-located at workspace root:
   - **Verdict gating:** `IN-PROGRESS` (kanban launch marker) and `PASS` block re-launch; `FAIL` allows re-run. After `PASS`, re-run requires deleting `TEST-REPORT.md`.
   - **Re-run after FAIL:** verifies only previously failed ACs; passed rows carry over as `PASS (carried)`. Previous report preserved as `TEST-REPORT.prev.md` by the kanban server.
   - **On FAIL:** creates fix tasks from open ACs — one per repo (`be` and `fe` separately, never combined), next free `TASK-NNN` numbers — and immediately launches the first via the kanban server.
+- `/team-lead:research "<topic>"` — Lightweight architecture/refactor **investigation** (token-frugal alternative to `/deep-research`). Creates a `RESEARCH.md` epic instead of TASK files; see **Investigation Epics** below.
+
+## Investigation Epics (`/team-lead:research`)
+
+- Artifact: a new epic directory with a single **`RESEARCH.md`** (the SPEC/TASK analog for investigations). Every stage and every agent's feedback block is appended to it as the research proceeds.
+- Agents (the only ones — no fan-out): **`research-investigator`** — central node, read-only code analysis, the **sole web-search point**, synthesis; plus read-only **`be-developer`/`fe-developer`** in RESEARCH MODE (no code changes, no web search) when a repo is genuinely involved. Each agent runs in its **own terminal tab** (`kanban-server/open-research-tab.sh` → `run-research.sh`), Claude or Cursor.
+- Kanban: one card, **`repo: inv`**; starts **In Progress**, reaches **Done** the same way TeamLead Check → Done does (investigator self-approves; the command flips the card). **`team-lead:test` is skipped** for `inv` cards — the `task-state-guard` hook gives them a lean `readyForDevelop → inProgress → done` lifecycle.
 
 ## Task Ordering
 

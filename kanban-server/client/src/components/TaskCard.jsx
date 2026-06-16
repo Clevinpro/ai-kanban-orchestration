@@ -4,6 +4,7 @@ import { formatDuration, fmtDate } from '../timeUtils';
 function repoBadge(repo) {
   if (repo === 'be') return 'bg-blue-100 text-blue-700';
   if (repo === 'fe') return 'bg-purple-100 text-purple-700';
+  if (repo === 'inv') return 'bg-amber-100 text-amber-700'; // investigation (RESEARCH.md)
   return 'bg-gray-100 text-gray-700';
 }
 

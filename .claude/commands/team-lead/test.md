@@ -9,6 +9,7 @@ allowed-tools:
   - Bash
   - Glob
   - Grep
+  - mcp__Claude_in_Chrome
 ---
 
 ## Constraints
@@ -17,6 +18,7 @@ allowed-tools:
 - It verifies the epic **holistically** — every acceptance criterion in the SPEC.md is checked against the aggregated evidence from all task files (Description, Code Review, QA Results, TeamLead Check), not task-by-task.
 - It does **not** change any **existing** task `status:` field. Never edit existing task frontmatter from this command. On a FAIL verdict it MAY create **new** fix task files (STEP 7) — that is the only task-file write it performs.
 - **Re-run semantics:** if a previous report exists with `Verdict: FAIL`, only the previously failed ACs are re-verified; PASS rows are carried over. A previous `Verdict: PASS` means the epic is closed — the kanban server blocks re-launch until `TEST-REPORT.md` is deleted.
+- **Live verification:** when the app is running (the `run-test.sh` wrapper boots backend + frontend and sets `TEAMLEAD_APP_LIVE=1`), UI-observable ACs are verified against the **running app** in a real browser via the **Claude-in-Chrome MCP** (`mcp__Claude_in_Chrome__*`, `localhost:3000`), not by reading task evidence alone. The wrapper launches the gate with `claude --chrome` so the in-process Chrome MCP is wired; a Chrome instance with the Claude extension must be connected (the wrapper reuses whatever browser is paired). When the app is not live, or no browser/Chrome MCP is available (e.g. a manual run without `--chrome`), the command falls back to evidence-only verification and says so in the report.
 
 ---
 
@@ -92,15 +94,45 @@ Build a combined picture of what the whole epic delivered.
 
 ---
 
+## STEP 4.5 — Live Browser Verification (when the app is up)
+
+The `run-test.sh` wrapper boots the whole stack before invoking this command:
+backend (`npm start` in `ai-platform/` → gateway **4000**, ai-service 4001, auth 4002) and
+frontend (`npm start` in `ai-platform-fe/` → shell **3000**, auth 3001, chat 3002, docs 3003).
+The shell at **`http://localhost:3000`** is the module-federation host — verify there.
+
+**Gate this step:**
+- If `$TEAMLEAD_APP_LIVE` is `1`, the app is up — do live verification.
+- Otherwise probe once with Bash: `curl -s -o /dev/null -w "%{http_code}" http://localhost:3000` (or `nc -z localhost 3000`). If it answers, proceed; if not, **skip this step**, mark live verification `SKIPPED (app not running)` and fall back to STEP 4 evidence for every AC.
+
+**Drive the running app via the Claude-in-Chrome MCP** (`mcp__Claude_in_Chrome__*`; the wrapper launches `claude --chrome`, so the in-process Chrome MCP is wired — do not boot servers yourself, the wrapper owns lifecycle):
+
+1. **Attach to a browser.** Call `list_connected_browsers`. If one is returned, `select_browser` with its `deviceId` (prefer `isLocal: true`). If the list is empty, the Chrome MCP isn't usable in this run — mark live verification `SKIPPED (no browser connected)` and fall back to evidence-only. **Do not fail the gate solely because the browser was missing.**
+2. **Open a tab.** Call `tabs_context_mcp` with `createIfEmpty: true` to get a `tabId` (or `tabs_create_mcp`). Reuse that `tabId` for every subsequent call.
+3. Decide which ACs are **UI-observable** (something a user can see/do in the browser: a page renders, a control appears, a flow completes, an API call succeeds end-to-end). Non-UI ACs (pure backend contracts, migrations, internal types) stay evidence-based from STEP 4.
+4. For each UI-observable AC, exercise it against `http://localhost:3000`:
+   - Navigate: `navigate` with the `tabId` and the route the AC concerns (e.g. `http://localhost:3000/chat`).
+   - Inspect: `get_page_text` (article/text content) and `read_page` (`filter: "interactive"` for controls) to assert presence/content; `find` (natural-language) to locate a specific element and get its `ref`.
+   - Interact: `computer` (`left_click` with a `ref` from `find`, `type`, `scroll`, etc.) and `form_input` to drive flows (send a chat message, submit a form). Confirm the end-to-end result with `read_network_requests` (the API call to gateway:4000 returned 2xx) where the AC implies a round-trip.
+   - Check runtime breakage: `read_console_messages` with `onlyErrors: true` and a `pattern` — console errors on a screen an AC depends on count as evidence **against** that AC.
+5. **Save screenshot evidence** for each UI-observable AC: `computer` with `action: "screenshot"`, `save_to_disk: true`, the `tabId`. The result returns a saved path — copy/move it into `<dir>/.test-evidence/AC-NN.jpg` with Bash (create the dir first) and reference that path in the report.
+6. Record per-AC live result: `LIVE PASS`, `LIVE FAIL`, or `N/A (not UI-observable)`.
+
+The wrapper tears the servers down after this command exits — no browser teardown needed here.
+
+---
+
 ## STEP 5 — Verify Acceptance Criteria
 
 Read the `## Acceptance Criteria` section from the SPEC.md. Check **every** criterion against the aggregated evidence from STEP 4. Do not stop at the first pass — verify all of them.
 
 **On a re-run (STEP 3.5):** verify only the **re-verify** set; carried ACs keep their previous PASS result without re-checking.
 
+Combine two evidence sources per AC: the aggregated task evidence (STEP 4) and the live browser result (STEP 4.5, when available). For UI-observable ACs the **live result is authoritative** — a `LIVE FAIL` is a FAIL even if the task evidence claims PASS (the running app is the ground truth).
+
 For each AC:
-- **PASS**: the aggregated task evidence demonstrates the criterion is met (name which task(s) satisfy it).
-- **FAIL**: the criterion is not addressed across any task, or there is evidence it was not satisfied.
+- **PASS**: the criterion is met — for UI-observable ACs this means `LIVE PASS`; for non-UI ACs the aggregated task evidence demonstrates it. Name which task(s) and/or which live check satisfy it.
+- **FAIL**: `LIVE FAIL`, or the criterion is not addressed across any task, or there is evidence it was not satisfied.
 
 ---
 
@@ -115,14 +147,16 @@ Verdict: PASS | FAIL
 Generated: <current ISO8601 timestamp>
 Tasks verified: <N> (all done)
 SPEC: <path-to-SPEC.md>
+Live verification: ON (Claude-in-Chrome MCP @ localhost:3000) | SKIPPED (app not running) | SKIPPED (no browser connected)
 
 ## Acceptance Criteria
 
-| # | Criterion | Result | Evidence |
-|---|-----------|--------|----------|
-| 1 | <AC text> | PASS   | TASK-003 QA PASS, TASK-004 code review APPROVED |
-| 2 | <AC text> | FAIL   | Not addressed by any task |
-| 3 | <AC text> | PASS (carried) | Verified in previous run (re-run skips passed ACs) |
+| # | Criterion | Result | Live Check | Evidence |
+|---|-----------|--------|-----------|----------|
+| 1 | <AC text> | PASS   | LIVE PASS | TASK-003 QA PASS; browser: chat renders + reply streams; `.test-evidence/AC-01.jpg` |
+| 2 | <AC text> | FAIL   | LIVE FAIL | Console error on /chat: `TypeError ...`; `.test-evidence/AC-02.jpg` |
+| 3 | <AC text> | PASS   | N/A       | Backend contract — TASK-005 QA PASS (not UI-observable) |
+| 4 | <AC text> | PASS (carried) | — | Verified in previous run (re-run skips passed ACs) |
 
 ## Summary
 

@@ -16,3 +16,25 @@ Use Cursor tools to do the work: `Read`, `Write`, `StrReplace`, `Glob`, `Grep`, 
 
 On successful completion, return a one-line receipt as your final output:
 `[fe-developer] DONE`
+
+## Research mode (read-only investigation)
+
+When the prompt says **RESEARCH MODE** (driven by `team-lead-research`), you are an
+investigator, not an implementer:
+
+- **Do NOT modify any source code.** No `Write`/`StrReplace` under `ai-platform-fe/`.
+  Use `Read`, `Grep`, `Glob`, and `Shell` for read-only inspection only.
+- **Do NOT use `WebSearch`.** Web search is the `research-investigator`'s sole job —
+  staying off it is what keeps this workflow token-frugal. Investigate the local
+  `ai-platform-fe/` codebase only.
+- **The one file you may write is** `.planning/work/<epic>/RESEARCH.md` (and only
+  that file, outside your repo): read it for the topic and the questions under
+  `## Investigator — Plan`, then **append** a `## FE Findings` block answering
+  them — relevant patterns, where/how to refactor, architectural options,
+  trade-offs, concrete file paths. Append only (use `StrReplace` to add your
+  block at the end); never rewrite other blocks, and never touch the frontmatter
+  `status`.
+- End the appended block with the sentinel line `[fe-developer] RESEARCH DONE`
+  (this is how the investigator detects you finished), then return that same
+  line as your one-line receipt:
+  `[fe-developer] RESEARCH DONE`

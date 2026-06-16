@@ -6,19 +6,21 @@ import {
   LoggerService,
 } from '@ai-platform/shared';
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { BehaviorSubject, Observable, from } from 'rxjs';
 import { switchMap, tap } from 'rxjs/operators';
-import { randomUUID } from 'crypto';
 import { ConversationService } from '../conversation/conversation.service';
 import { SearchService, SimilaritySearchResult } from '../search/search.service';
-import { CapabilityDetectorService } from './capability-detector.service';
 import { AiProviderFactory } from './providers/ai-provider.factory';
+import { QueryRouterService } from './query-router.service';
+import { TimeoutExceededError } from './safeguards/errors';
 import { IterationCap } from './safeguards/iteration-cap';
 import { KillSwitch } from './safeguards/kill-switch';
 import { Timeout } from './safeguards/timeout';
 import { TokenBudget } from './safeguards/token-budget';
+import { createRagSearchTool } from './tools/rag-search.tool';
+import { TAG_QUERY_TOOL_NAME } from './tools/tag-query.tool';
 import { ToolRegistry } from './tools/tool-registry';
-import { TimeoutExceededError } from './safeguards/errors';
 
 /**
  * Default safeguard limits for the unified chat flow. Applied whenever the
@@ -27,7 +29,7 @@ import { TimeoutExceededError } from './safeguards/errors';
  */
 const DEFAULT_MAX_ITERATIONS = 10;
 const DEFAULT_TOKEN_BUDGET = 100_000;
-const DEFAULT_TIMEOUT_MS = 120_000;
+const DEFAULT_TIMEOUT_MS = 90_000;
 
 /**
  * Sentinel markers the planner must use so the loop can deterministically
@@ -83,7 +85,15 @@ type AgentDecision = ParsedDecision & {
 
 @Injectable()
 export class AiService {
-  private static readonly CAPABILITY_VAULT_PREFIX = 'docs/obsidian-vault/project/';
+  static readonly CAPABILITY_VAULT_PREFIX = 'docs/obsidian-vault/project/';
+
+  /**
+   * Document path prefix for API / technical documentation retrieval.
+   * Scoped to `docs/obsidian-vault/codebase/` — the vault folder that holds
+   * architecture, stack, conventions, and integration docs (analogous to the
+   * capability prefix under `project/`).
+   */
+  static readonly TECHNICAL_DOCS_PREFIX = 'docs/obsidian-vault/codebase/';
 
   /**
    * Active per-run kill switches keyed by `conversationId`. The `AI_CANCEL`
@@ -101,8 +111,8 @@ export class AiService {
     private readonly factory: AiProviderFactory,
     private readonly conversationService: ConversationService,
     private readonly logger: LoggerService,
-    private readonly capabilityDetector: CapabilityDetectorService,
     private readonly toolRegistry: ToolRegistry,
+    private readonly queryRouter: QueryRouterService,
   ) {}
 
   processMessage(request: unknown, options?: ProcessMessageOptions): Observable<string> {
@@ -116,20 +126,77 @@ export class AiService {
       'AiService',
     );
 
-    // Unified chat path: there is no chat-vs-agent mode duality. The capability
-    // detector stays as an optional pre-step that short-circuits to the
-    // capability answer; every other request runs the single bounded tool-use
-    // loop (`runChatFlow`), which may answer directly or call the RAG tool.
-    return from(this.capabilityDetector.isCapabilityQuery(payload.message)).pipe(
-      switchMap((isCapability) => {
-        if (isCapability) {
-          return from(this.answerCapabilityQuery(payload, emitStatus)).pipe(
-            switchMap((obs) => obs),
-          );
+    // Route each query into the cheapest correct lane (meta / structured /
+    // technical / complex). Structured answers with zero LLM calls; technical
+    // scopes RAG to API docs; complex runs the bounded tool-use loop.
+    return from(this.queryRouter.classify(payload.message)).pipe(
+      switchMap((lane) => {
+        switch (lane) {
+          case 'meta':
+            return from(this.answerCapabilityQuery(payload, emitStatus)).pipe(
+              switchMap((obs) => obs),
+            );
+          case 'structured':
+            return this.runStructuredLane(payload, emitStatus);
+          case 'technical':
+            return from(this.answerTechnicalQuery(payload, emitStatus)).pipe(
+              switchMap((obs) => obs),
+            );
+          case 'complex':
+          default:
+            return this.runChatFlow(payload, emitStatus, options?.onAgentEvent);
         }
-        return this.runChatFlow(payload, emitStatus, options?.onAgentEvent);
       }),
     );
+  }
+
+  /**
+   * Structured lane: resolve tag list/count queries via the direct DB-backed
+   * {@link TAG_QUERY_TOOL_NAME} tool with zero LLM invocations.
+   */
+  private runStructuredLane(
+    payload: AiRequestPayload,
+    emitStatus: (stage: AiStatusStage, message: string) => void,
+  ): Observable<string> {
+    const subject = new BehaviorSubject<string>('');
+
+    void (async () => {
+      try {
+        const tool = this.toolRegistry.get(TAG_QUERY_TOOL_NAME);
+        if (!tool) {
+          subject.error(
+            new Error(`Structured lane: tool "${TAG_QUERY_TOOL_NAME}" is not registered`),
+          );
+          return;
+        }
+
+        if (payload.conversationId) {
+          emitStatus('save_message', 'Saving user message...');
+          await this.conversationService.saveMessage({
+            conversationId: payload.conversationId,
+            role: 'user',
+            content: payload.message,
+          });
+        }
+
+        const observation = await tool.run(payload.message, {
+          conversationId: payload.conversationId,
+        });
+
+        subject.next(observation);
+
+        if (payload.conversationId) {
+          emitStatus('save_response', 'Saving assistant response...');
+          await this.persistAssistantMessage(payload.conversationId, observation);
+        }
+
+        subject.complete();
+      } catch (err: unknown) {
+        subject.error(err);
+      }
+    })();
+
+    return subject.asObservable();
   }
 
   /**
@@ -558,6 +625,51 @@ export class AiService {
       tokenBudget: payload.tokenBudget,
       timeoutMs: payload.timeoutMs,
     };
+  }
+
+  /**
+   * Technical lane: scoped RAG over API/technical docs, then a single LLM answer.
+   * Uses a prefixed {@link createRagSearchTool} instance so retrieval never
+   * searches the whole index.
+   */
+  private async answerTechnicalQuery(
+    payload: AiRequestPayload,
+    emitStatus: (stage: AiStatusStage, message: string) => void,
+  ): Promise<Observable<string>> {
+    const provider = this.factory.getProvider();
+    const technicalRag = createRagSearchTool(
+      this.searchService,
+      AiService.TECHNICAL_DOCS_PREFIX,
+    );
+
+    emitStatus('rag_search', 'Searching technical documentation...');
+    const context = await technicalRag.run(payload.message, {
+      conversationId: payload.conversationId,
+    });
+
+    this.logger.log(
+      `Technical query context: prefix=${AiService.TECHNICAL_DOCS_PREFIX}, contextLen=${context.length}`,
+      'AiService',
+    );
+    emitStatus(
+      'rag_found',
+      context.length > 0 ? 'Found technical documentation context' : 'No relevant context found',
+    );
+
+    const systemPrompt =
+      context.length > 0
+        ? `Context (technical documentation — single source of facts):\n${context}\n\nResponse rules:\n- Use only wording from context above;\n- Respond literally from it, no paraphrasing or extra explanations;\n- Do not add information not in context.\n- If context has no answer — state it explicitly.`
+        : `You are the platform's AI assistant. The user asked a technical/API question but no matching documentation was found in the technical docs index. Inform them clearly that the relevant technical information was not found.`;
+
+    emitStatus('prompt_build', 'Preparing prompt...');
+
+    return this.buildAndStream(
+      provider,
+      payload.message,
+      systemPrompt,
+      payload.conversationId,
+      emitStatus,
+    );
   }
 
   private async answerCapabilityQuery(

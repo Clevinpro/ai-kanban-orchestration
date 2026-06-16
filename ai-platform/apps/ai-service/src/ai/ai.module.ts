@@ -1,3 +1,4 @@
+import { PrismaService } from '@ai-platform/database';
 import {
   AgentEvent,
   AiResponsePayload,
@@ -14,9 +15,11 @@ import { SearchService } from '../search/search.service';
 import { AiProvidersModule } from './ai-providers.module';
 import { AiService } from './ai.service';
 import { CapabilityDetectorService } from './capability-detector.service';
+import { QueryRouterService } from './query-router.service';
 import { isSafeguardError } from './safeguards/errors';
-import { ToolRegistry } from './tools/tool-registry';
 import { createRagSearchTool } from './tools/rag-search.tool';
+import { createTagQueryTool } from './tools/tag-query.tool';
+import { ToolRegistry } from './tools/tool-registry';
 
 interface AiRequestPayload {
   userId: string;
@@ -46,21 +49,27 @@ interface AiCancelPayload {
     AiService,
     CapabilityDetectorService,
     ConversationService,
+    QueryRouterService,
     {
       // Singleton ToolRegistry, populated at construction. The factory runs
-      // exactly once for this provider, so the RAG tool is registered exactly
+      // exactly once for this provider, so each tool is registered exactly
       // once — no duplicate-registration risk. SearchService is injected from
-      // the imported SearchModule so the tool wraps the real search pipeline.
+      // the imported SearchModule; PrismaService comes from the global
+      // DatabaseModule (loaded by AppModule / SearchModule).
       provide: ToolRegistry,
-      useFactory: (searchService: SearchService): ToolRegistry => {
+      useFactory: (
+        searchService: SearchService,
+        prismaService: PrismaService,
+      ): ToolRegistry => {
         const registry = new ToolRegistry();
         registry.register(createRagSearchTool(searchService));
+        registry.register(createTagQueryTool(prismaService));
         return registry;
       },
-      inject: [SearchService],
+      inject: [SearchService, PrismaService],
     },
   ],
-  // ToolRegistry is exported so AiService (wired in TASK-005) can inject it.
+  // ToolRegistry is exported so AiService can inject it.
   exports: [AiService, AiProvidersModule, ToolRegistry],
 })
 export class AiModule implements OnModuleInit {

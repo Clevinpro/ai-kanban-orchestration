@@ -69,4 +69,30 @@ describe('createRagSearchTool', () => {
     expect(search.formatContext).toHaveBeenCalledWith([]);
     expect(observation).toBe('Documentation context:');
   });
+
+  it('forwards filePathPrefix to similaritySearch when provided', async () => {
+    const search = makeSearchService();
+    const prefix = 'docs/technical/';
+    search.similaritySearch.mockResolvedValue([]);
+    search.formatContext.mockReturnValue('scoped-context');
+
+    const tool = createRagSearchTool(search as unknown as SearchService, prefix);
+    await tool.run('how does the API work', ctx);
+
+    expect(search.similaritySearch).toHaveBeenCalledTimes(1);
+    expect(search.similaritySearch).toHaveBeenCalledWith('how does the API work', 6, prefix);
+    expect(search.formatContext).toHaveBeenCalledWith([]);
+  });
+
+  it('searches the whole index when filePathPrefix is omitted', async () => {
+    const search = makeSearchService();
+    search.similaritySearch.mockResolvedValue([]);
+    search.formatContext.mockReturnValue('whole-index-context');
+
+    const tool = createRagSearchTool(search as unknown as SearchService);
+    await tool.run('general question', ctx);
+
+    expect(search.similaritySearch).toHaveBeenCalledTimes(1);
+    expect(search.similaritySearch).toHaveBeenCalledWith('general question');
+  });
 });

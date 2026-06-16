@@ -1,9 +1,14 @@
 import type { AgentEvent } from '@ai-platform/shared';
 import { Observable, of } from 'rxjs';
 import { AiService } from './ai.service';
-import { IterationCapExceededError } from './safeguards/errors';
-import { ToolRegistry } from './tools/tool-registry';
+import { QueryRouterService } from './query-router.service';
+import {
+  IterationCapExceededError,
+  TokenBudgetExceededError,
+} from './safeguards/errors';
 import { createRagSearchTool, RAG_SEARCH_TOOL_NAME } from './tools/rag-search.tool';
+import { TAG_QUERY_TOOL_NAME } from './tools/tag-query.tool';
+import { ToolRegistry } from './tools/tool-registry';
 
 /**
  * Emit the given chunks asynchronously (one per microtask), mirroring how a real
@@ -52,6 +57,8 @@ describe('AiService agent loop', () => {
     loadHistory: jest.Mock;
     saveMessage: jest.Mock;
     registry: ToolRegistry;
+    tagToolRun: jest.Mock;
+    queryRouter: QueryRouterService;
   }
 
   /**
@@ -74,19 +81,25 @@ describe('AiService agent loop', () => {
     const conversationService = { loadHistory, saveMessage };
     const logger = { log: jest.fn(), warn: jest.fn(), error: jest.fn() };
     const capabilityDetector = { isCapabilityQuery };
+    const queryRouter = new QueryRouterService(capabilityDetector as never);
 
-    // Registry wired exactly like the module: the RAG tool is the only tool
-    // registered, so the loop dispatches it by name through the registry.
+    // Registry wired exactly like the module: RAG + tag-query tools.
     const registry = new ToolRegistry();
     registry.register(createRagSearchTool(searchService as never));
+    const tagToolRun = jest.fn().mockResolvedValue('Tag count: 3');
+    registry.register({
+      name: TAG_QUERY_TOOL_NAME,
+      description: 'List or count tags.',
+      run: tagToolRun,
+    });
 
     const service = new AiService(
       searchService as never,
       factory as never,
       conversationService as never,
       logger as never,
-      capabilityDetector as never,
       registry,
+      queryRouter,
     );
 
     return {
@@ -98,6 +111,8 @@ describe('AiService agent loop', () => {
       loadHistory,
       saveMessage,
       registry,
+      tagToolRun,
+      queryRouter,
     };
   }
 
@@ -330,7 +345,8 @@ describe('AiService agent loop', () => {
     expect(error).toBeUndefined();
     expect(text).toBe('plain chat reply');
 
-    // The unified flow still consults the capability detector as a pre-step.
+    // The unified flow still consults the query router (which delegates to the
+    // capability detector for non-structured queries).
     expect(mocks.isCapabilityQuery).toHaveBeenCalled();
 
     // The model answered directly: exactly one planning turn, no tool dispatch.
@@ -346,14 +362,14 @@ describe('AiService agent loop', () => {
       elapsedMs: expect.any(Number),
       maxIterations: 10,
       tokenBudget: 100_000,
-      timeoutMs: 120_000,
+      timeoutMs: 90_000,
     });
   });
 
   it('a capability query short-circuits to the capability answer and bypasses the loop', async () => {
     const mocks = buildService();
     mocks.isCapabilityQuery.mockResolvedValueOnce(true);
-    mocks.chat.mockReturnValue(of('capability answer'));
+    mocks.chat.mockReturnValue(of('You can manage tags and search docs.'));
 
     const { events, error } = await collectRun(mocks.service, {
       message: 'what can you do?',
@@ -363,7 +379,194 @@ describe('AiService agent loop', () => {
     // The capability pre-step answers directly, so no agent loop events fire.
     expect(events).toHaveLength(0);
     expect(mocks.isCapabilityQuery).toHaveBeenCalled();
-    // It runs a scoped similarity search, not the tool-use loop.
-    expect(mocks.similaritySearch).toHaveBeenCalled();
+    // Scoped retrieval only — capability-vault prefix, never whole-index RAG.
+    expect(mocks.similaritySearch).toHaveBeenCalledTimes(1);
+    expect(mocks.similaritySearch).toHaveBeenCalledWith(
+      'what can you do?',
+      6,
+      AiService.CAPABILITY_VAULT_PREFIX,
+    );
+    expect(mocks.similaritySearch.mock.calls[0]).toHaveLength(3);
+    for (const call of mocks.similaritySearch.mock.calls) {
+      expect(call[2]).toBe(AiService.CAPABILITY_VAULT_PREFIX);
+    }
+    // Single LLM stream for the answer — not the bounded tool-use loop.
+    expect(mocks.chat).toHaveBeenCalledTimes(1);
+  });
+
+  describe('lane routing (TASK-006)', () => {
+    it('structured lane: count/list queries answer with zero provider.chat() calls', async () => {
+      const mocks = buildService();
+      mocks.tagToolRun.mockResolvedValueOnce('Tag count: 5');
+
+      const { text, events, error } = await collectRun(mocks.service, {
+        message: 'count tags',
+      });
+
+      expect(error).toBeUndefined();
+      expect(text).toBe('Tag count: 5');
+      expect(mocks.chat).not.toHaveBeenCalled();
+      expect(mocks.similaritySearch).not.toHaveBeenCalled();
+      expect(mocks.tagToolRun).toHaveBeenCalledWith('count tags', expect.any(Object));
+      expect(events).toHaveLength(0);
+    });
+
+    it('structured lane: list all tags resolves via tag-query.tool only', async () => {
+      const mocks = buildService();
+      mocks.tagToolRun.mockResolvedValueOnce('Tags (2):\n<faq>\n<note>');
+
+      const { text, error } = await collectRun(mocks.service, {
+        message: 'list all tags',
+      });
+
+      expect(error).toBeUndefined();
+      expect(text).toBe('Tags (2):\n<faq>\n<note>');
+      expect(mocks.chat).not.toHaveBeenCalled();
+      expect(mocks.similaritySearch).not.toHaveBeenCalled();
+      expect(mocks.tagToolRun).toHaveBeenCalledWith('list all tags', expect.any(Object));
+    });
+
+    it('meta lane: capability queries call similaritySearch with the capability-vault prefix only (TASK-007)', async () => {
+      const mocks = buildService();
+      mocks.isCapabilityQuery.mockResolvedValueOnce(true);
+      mocks.chat.mockReturnValue(of('Here are the platform capabilities.'));
+
+      const { events, error } = await collectRun(mocks.service, {
+        message: 'what can I do here?',
+      });
+
+      expect(error).toBeUndefined();
+      expect(mocks.similaritySearch).toHaveBeenCalledTimes(1);
+      expect(mocks.similaritySearch).toHaveBeenCalledWith(
+        'what can I do here?',
+        6,
+        AiService.CAPABILITY_VAULT_PREFIX,
+      );
+      expect(mocks.similaritySearch.mock.calls[0]).toHaveLength(3);
+      expect(mocks.chat).toHaveBeenCalledTimes(1);
+      expect(events).toHaveLength(0);
+    });
+
+    it('technical lane: API queries call similaritySearch with the technical-docs prefix only', async () => {
+      const mocks = buildService();
+      mocks.chat.mockReturnValue(asyncStream('The API supports REST endpoints.'));
+
+      const { events, error } = await collectRun(mocks.service, {
+        message: 'how does the API work?',
+      });
+
+      expect(error).toBeUndefined();
+      expect(mocks.similaritySearch).toHaveBeenCalledTimes(1);
+      expect(mocks.similaritySearch).toHaveBeenCalledWith(
+        'how does the API work?',
+        6,
+        AiService.TECHNICAL_DOCS_PREFIX,
+      );
+      expect(mocks.similaritySearch.mock.calls[0]).toHaveLength(3);
+      expect(mocks.chat).toHaveBeenCalledTimes(1);
+      expect(events).toHaveLength(0);
+    });
+
+    it('complex lane: still runs runChatFlow with safeguards and agent events', async () => {
+      const mocks = buildService();
+      mocks.chat.mockReturnValueOnce(of('FINAL: complex answer'));
+
+      const { text, events, error } = await collectRun(mocks.service, {
+        message: 'explain the deployment architecture in detail',
+      });
+
+      expect(error).toBeUndefined();
+      expect(text).toBe('complex answer');
+      expect(mocks.chat).toHaveBeenCalledTimes(1);
+      expect(events.map((e) => e.status)).toContain('planning');
+      expect(events.map((e) => e.status)).toContain('final');
+    });
+  });
+
+  /**
+   * Final regression gate (TASK-009 / AC-08): the complex lane must still
+   * construct and enforce all four safeguards, and every `AgentEvent` must
+   * round-trip as plain JSON with the stable SSE field set.
+   */
+  describe('complex lane regression gate (TASK-009)', () => {
+    const AGENT_EVENT_ALLOWED_KEYS = new Set([
+      'iteration',
+      'status',
+      'tool',
+      'input',
+      'budget',
+    ]);
+
+    /** Assert an event matches the FE-facing `AgentEvent` contract. */
+    function expectAgentEventContract(event: AgentEvent): void {
+      for (const key of Object.keys(event)) {
+        expect(AGENT_EVENT_ALLOWED_KEYS.has(key)).toBe(true);
+      }
+      expect(typeof event.iteration).toBe('number');
+      expect(['planning', 'tool_call', 'tool_result', 'final']).toContain(event.status);
+      if (event.tool !== undefined) {
+        expect(typeof event.tool).toBe('string');
+      }
+      if (event.input !== undefined) {
+        expect(typeof event.input).toBe('string');
+      }
+      if (event.budget !== undefined) {
+        expect(event.budget).toEqual({
+          iteration: expect.any(Number),
+          tokensUsed: expect.any(Number),
+          elapsedMs: expect.any(Number),
+          maxIterations: expect.any(Number),
+          tokenBudget: expect.any(Number),
+          timeoutMs: expect.any(Number),
+        });
+      }
+    }
+
+    it('emits AgentEvents whose payload shape matches the SSE contract', async () => {
+      const mocks = buildService();
+      mocks.chat
+        .mockReturnValueOnce(of(`TOOL ${RAG_SEARCH_TOOL_NAME}: policy details`))
+        .mockReturnValueOnce(of('FINAL: summarized'));
+
+      const { events, error } = await collectRun(mocks.service, {
+        message: 'explain the deployment architecture in detail',
+        maxIterations: 5,
+        tokenBudget: 10_000,
+        timeoutMs: 15_000,
+      });
+
+      expect(error).toBeUndefined();
+      expect(events.length).toBeGreaterThan(0);
+      for (const event of events) {
+        expectAgentEventContract(event);
+      }
+
+      const toolCall = events.find((e) => e.status === 'tool_call');
+      expect(toolCall).toMatchObject({
+        iteration: expect.any(Number),
+        status: 'tool_call',
+        tool: RAG_SEARCH_TOOL_NAME,
+        input: 'policy details',
+        budget: expect.objectContaining({
+          maxIterations: 5,
+          tokenBudget: 10_000,
+          timeoutMs: 15_000,
+        }),
+      });
+    });
+
+    it('token-budget-exceeded: a tiny token budget aborts the complex lane with the typed safeguard reason', async () => {
+      const mocks = buildService();
+      const longAnswer = 'x'.repeat(100);
+      mocks.chat.mockReturnValueOnce(of(`FINAL: ${longAnswer}`));
+
+      const { error } = await collectRun(mocks.service, {
+        message: 'explain the deployment architecture in detail',
+        tokenBudget: 10,
+      });
+
+      expect(error).toBeInstanceOf(TokenBudgetExceededError);
+      expect((error as TokenBudgetExceededError).reason).toBe('token_budget');
+    });
   });
 });
