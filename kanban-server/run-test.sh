@@ -105,11 +105,14 @@ fi
 # if none is connected the gate degrades to evidence-only (handled in test.md).
 cd "$WORK_DIR" || exit 1
 if [ "$AGENT" = "cursor" ]; then
-  # Cursor CLI invokes the mirrored .cursor/skills/team-lead-test skill.
-  # -f (force) lets the gate run tools without per-command approval prompts.
-  # --model auto delegates model selection to Cursor (avoids fixed-model overload).
+  # cursor-agent runs its interactive TUI in the foreground (same shape as the
+  # claude branch + run-task.sh). NOT -p/headless (hides the UI), NOT piped
+  # (breaks the TUI). --force auto-approves tool/shell commands; --workspace
+  # pins the workspace + cwd to the repo root so the one-time "Workspace Trust"
+  # prompt targets the repo (already pre-trusted). --model auto lets Cursor pick.
+  # The .cursor/skills/team-lead-test skill is invoked by the prompt text.
   log "starting team-lead-test $EPIC (cursor)"
-  TEAMLEAD_APP_LIVE="$APP_LIVE" "$CURSOR_BIN" --model auto -f "team-lead-test $EPIC"
+  TEAMLEAD_APP_LIVE="$APP_LIVE" "$CURSOR_BIN" --force --workspace "$WORK_DIR" --model auto "team-lead-test $EPIC"
 else
   log "starting /team-lead:test $EPIC (claude --chrome)"
   TEAMLEAD_APP_LIVE="$APP_LIVE" "$CLAUDE_BIN" --chrome "/team-lead:test $EPIC"
