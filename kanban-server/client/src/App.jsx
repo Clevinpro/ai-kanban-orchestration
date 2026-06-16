@@ -79,6 +79,18 @@ export default function App() {
   const [autoRunNextEpic, setAutoRunNextEpic] = useState(
     () => localStorage.getItem('kanban-autoRunNextEpic') === 'true',
   );
+  // Per-epic agent: epic -> 'claude' | 'cursor'. Chooses which CLI the server
+  // spawns for that epic's task launches and acceptance gate. Missing → 'claude'.
+  const [epicAgents, setEpicAgents] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('kanban-epicAgents') || '{}');
+    } catch {
+      return {};
+    }
+  });
+  const setEpicAgent = (epic, agent) =>
+    setEpicAgents((prev) => ({ ...prev, [epic]: agent }));
+  const agentFor = (epic) => epicAgents[epic] || 'claude';
   // epic -> { verdict: 'IN-PROGRESS' | 'PASS' | 'FAIL', startedAt, endedAt }.
   // Fed by epic-test SSE events (initial snapshot on connect + live
   // TEST-REPORT.md changes).
@@ -90,6 +102,9 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('kanban-autoRunNextEpic', autoRunNextEpic);
   }, [autoRunNextEpic]);
+  useEffect(() => {
+    localStorage.setItem('kanban-epicAgents', JSON.stringify(epicAgents));
+  }, [epicAgents]);
   const esRef = useRef(null);
   const retryRef = useRef(null);
   // Tracks the last-seen status of every task (uid -> status). Used to detect a
@@ -125,7 +140,7 @@ export default function App() {
         fetch('/tasks/' + next.epic + '/' + next.id + '/status', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status: 'inProgress' }),
+          body: JSON.stringify({ status: 'inProgress', agent: agentFor(epic) }),
         }).catch(() => {
           dispatch({ type: 'DRAG_REVERT', taskId: next.id, taskEpic: next.epic, originalStatus: 'readyForDevelop' });
         });
@@ -151,7 +166,11 @@ export default function App() {
         if (v === 'IN-PROGRESS' || v === 'PASS') continue;
         if (e && e.total > 0 && e.done === e.total && !testedEpicsRef.current.has(epic)) {
           testedEpicsRef.current.add(epic);
-          fetch('/epics/' + epic + '/test', { method: 'POST' }).catch(() => {
+          fetch('/epics/' + epic + '/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ agent: agentFor(epic) }),
+          }).catch(() => {
             testedEpicsRef.current.delete(epic); // allow retry on failure
           });
         }
@@ -186,7 +205,7 @@ export default function App() {
               fetch('/tasks/' + next.epic + '/' + next.id + '/status', {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ status: 'inProgress' }),
+                body: JSON.stringify({ status: 'inProgress', agent: agentFor(nextEpic) }),
               }).catch(() => {
                 dispatch({ type: 'DRAG_REVERT', taskId: next.id, taskEpic: next.epic, originalStatus: 'readyForDevelop' });
               });
@@ -256,6 +275,8 @@ export default function App() {
       autoRunNextEpic={autoRunNextEpic}
       setAutoRunNextEpic={setAutoRunNextEpic}
       epicTests={epicTests}
+      epicAgents={epicAgents}
+      setEpicAgent={setEpicAgent}
     />
   );
 }

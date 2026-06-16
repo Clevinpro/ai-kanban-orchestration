@@ -13,10 +13,16 @@
 # A manual `claude "/team-lead:test <epic>"` (not via this wrapper) skips boot;
 # the command detects that and falls back to evidence-only verification.
 
-EPIC=$1
+# Usage: run-test.sh <AGENT> <epic>
+#   AGENT = claude | cursor  (which CLI drives the gate; defaults to claude)
+AGENT=${1:-claude}
+EPIC=$2
 WORK_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BE_DIR="$WORK_DIR/ai-platform"
 FE_DIR="$WORK_DIR/ai-platform-fe"
+
+CLAUDE_BIN="${CLAUDE_BIN:-/Users/tarasbannyi/.local/bin/claude}"
+CURSOR_BIN="${CURSOR_BIN:-$HOME/.local/bin/cursor-agent}"
 
 # Ports we own for the duration of the gate.
 BE_PORTS=(4000 4001 4002)
@@ -97,7 +103,16 @@ fi
 # --chrome wires the in-process Claude-in-Chrome MCP so the gate can drive the
 # live app in a real browser. Requires a Chrome with the Claude extension paired;
 # if none is connected the gate degrades to evidence-only (handled in test.md).
-log "starting /team-lead:test $EPIC (with --chrome)"
-cd "$WORK_DIR" && TEAMLEAD_APP_LIVE="$APP_LIVE" /Users/tarasbannyi/.local/bin/claude --chrome "/team-lead:test $EPIC"
+cd "$WORK_DIR" || exit 1
+if [ "$AGENT" = "cursor" ]; then
+  # Cursor CLI invokes the mirrored .cursor/skills/team-lead-test skill.
+  # -f (force) lets the gate run tools without per-command approval prompts.
+  # --model auto delegates model selection to Cursor (avoids fixed-model overload).
+  log "starting team-lead-test $EPIC (cursor)"
+  TEAMLEAD_APP_LIVE="$APP_LIVE" "$CURSOR_BIN" --model auto -f "team-lead-test $EPIC"
+else
+  log "starting /team-lead:test $EPIC (claude --chrome)"
+  TEAMLEAD_APP_LIVE="$APP_LIVE" "$CLAUDE_BIN" --chrome "/team-lead:test $EPIC"
+fi
 
 # --- 6. teardown via trap -------------------------------------------------

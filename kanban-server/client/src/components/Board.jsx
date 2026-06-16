@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import TaskCard from './TaskCard';
+import AgentSelect from './AgentSelect';
 import { formatDuration, fmtDate } from '../timeUtils';
 
 const COLUMN_ORDER = [
@@ -91,8 +92,9 @@ function TestVerdictBadge({ verdict }) {
   return null;
 }
 
-export default function Board({ tasks, dispatch, autoRunEpics = {}, toggleEpicAutoRun, autoRunNextEpic, setAutoRunNextEpic, epicTests = {} }) {
+export default function Board({ tasks, dispatch, autoRunEpics = {}, toggleEpicAutoRun, autoRunNextEpic, setAutoRunNextEpic, epicTests = {}, epicAgents = {}, setEpicAgent }) {
   const [openEpics, setOpenEpics] = useState({});
+  const agentFor = (epic) => epicAgents[epic] || 'claude';
 
   // The next epic the footer chain would start: first (alphabetical) epic that
   // is still entirely unstarted (no task outside Ready) — so the currently
@@ -113,7 +115,11 @@ export default function Board({ tasks, dispatch, autoRunEpics = {}, toggleEpicAu
   function runEpicTest(epic) {
     // Server guards duplicates: 409 while TEST-REPORT.md reads IN-PROGRESS.
     // Button state updates via the epic-test SSE event, no optimistic write needed.
-    fetch('/epics/' + epic + '/test', { method: 'POST' }).catch(() => {});
+    fetch('/epics/' + epic + '/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agent: agentFor(epic) }),
+    }).catch(() => {});
   }
 
   function handleDragEnd(result) {
@@ -130,7 +136,7 @@ export default function Board({ tasks, dispatch, autoRunEpics = {}, toggleEpicAu
     fetch('/tasks/' + taskEpic + '/' + taskId + '/status', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: newStatus }),
+      body: JSON.stringify({ status: newStatus, agent: agentFor(taskEpic) }),
     }).then(function(res) {
       if (!res.ok) dispatch({ type: 'DRAG_REVERT', taskId, taskEpic, originalStatus });
     }).catch(function() {
@@ -290,7 +296,7 @@ export default function Board({ tasks, dispatch, autoRunEpics = {}, toggleEpicAu
                             <div className="flex items-center gap-1.5">
                               <button
                                 onClick={() => toggleEpic('ready:' + epic)}
-                                className="flex items-center gap-1.5 flex-1 min-w-0 uppercase hover:opacity-80"
+                                className="flex items-center gap-1.5 min-w-0 shrink uppercase hover:opacity-80"
                               >
                                 <svg
                                   className={`w-3 h-3 flex-shrink-0 transition-transform ${isOpen ? 'rotate-90' : ''}`}
@@ -300,7 +306,11 @@ export default function Board({ tasks, dispatch, autoRunEpics = {}, toggleEpicAu
                                 </svg>
                                 <span className="truncate">{epic}</span>
                               </button>
-                              <span className="font-normal opacity-70">{sorted.length}</span>
+                              <AgentSelect
+                                value={agentFor(epic)}
+                                onChange={(a) => setEpicAgent && setEpicAgent(epic, a)}
+                              />
+                              <span className="ml-auto font-normal opacity-70">{sorted.length}</span>
                               <button
                                 onClick={() => toggleEpicAutoRun(epic)}
                                 title="Auto-run the next task in this epic when the previous is done"

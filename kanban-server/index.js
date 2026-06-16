@@ -23,19 +23,28 @@ const PORT = (!process.env.PORT || isNaN(rawPort)) ? 6111 : rawPort;
 // Task files live at .planning/work/<epic>/*.md (workspace root, two levels up from __dirname)
 // Use __dirname so WORK_DIR resolves correctly regardless of the process CWD.
 const WORK_DIR = path.join(__dirname, '..', '.planning', 'work');
+const TASK_RUN_DIR = path.join(__dirname, '.task-runs');
 
 // STOPPABLE statuses: active statuses that allow a stopped transition (D-02)
 // readyForDevelop and done are intentionally excluded.
 const STOPPABLE = ['inProgress', 'inReview', 'inTesting', 'forTeamLeadCheck'];
+
+// Backstop reconcile: heal tasks abandoned in a transient pipeline stage when an
+// abrupt kill skipped the runner's shell traps (run-task.sh on_exit/watchdog).
+// forTeamLeadCheck is intentionally EXCLUDED — a clean run can rest there awaiting
+// human review with a now-dead runner pid, so healing on pid-death alone would
+// clobber that pause; its terminal-close revert is handled by run-task.sh's
+// parent-dead check instead.
+const RECONCILE_STALE = ['inProgress', 'inReview', 'inTesting'];
 
 // Terminal-spawn dedup: track tasks for which we've already opened an iTerm tab,
 // so a re-sent inProgress (page reload, multiple browser tabs, autoRun race) does
 // NOT spawn a second terminal that would conflict with the running agent.
 // uid -> timestamp(ms). Cleared when the task leaves a running status (see chokidar).
 const spawnedTasks = new Map();
-// Cooldown covers the window between spawning the terminal and the agent writing
-// `status: inProgress` to the file — during which the on-disk guard alone is blind.
-const SPAWN_COOLDOWN_MS = 5 * 60 * 1000;
+// Short anti-double-click window after spawning a terminal. Longer dedup is based
+// on real runner liveness via .task-runs sidecar (pid), not this in-memory timer.
+const SPAWN_COOLDOWN_MS = 15 * 1000;
 
 // A task is considered "no longer running" (terminal closed / pipeline ended) in
 // these statuses — used to release the spawn guard so the task can be re-run later.
@@ -191,6 +200,84 @@ function loadAllTasks() {
   return tasks;
 }
 
+/**
+ * Build the run sidecar path for a task (written by run-task.sh).
+ */
+function taskRunFile(epic, taskId) {
+  return path.join(TASK_RUN_DIR, epic + '__' + taskId + '.json');
+}
+
+function removeTaskRunMeta(epic, taskId) {
+  try { fs.unlinkSync(taskRunFile(epic, taskId)); } catch { /* missing or already cleaned */ }
+}
+
+/**
+ * Read run metadata for a task. Returns null when missing/invalid.
+ */
+function readTaskRunMeta(epic, taskId) {
+  try {
+    const raw = fs.readFileSync(taskRunFile(epic, taskId), 'utf8');
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed.pid !== 'number') return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * True when the PID exists and can receive signals.
+ */
+function isPidAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Rewrite a task file from inProgress back to readyForDevelop and emit SSE.
+ */
+function resetTaskToReady(filePath, task) {
+  const now = new Date().toISOString();
+  let content = fs.readFileSync(filePath, 'utf8');
+  content = content.replace(/^status:\s*\S+/m, 'status: readyForDevelop');
+  content = content.replace(/^updated-at:\s*.+/m, 'updated-at: ' + now);
+  fs.writeFileSync(filePath, content, 'utf8');
+  pushEvent({ ...task, status: 'readyForDevelop', 'updated-at': now });
+}
+
+/**
+ * Heal stale tasks left in a transient pipeline stage (inProgress / inReview /
+ * inTesting — see RECONCILE_STALE) when their runner process is gone.
+ * This covers abrupt terminal closes where shell traps never execute.
+ */
+function reconcileStaleInProgressTasks() {
+  try {
+    const epics = fs.readdirSync(WORK_DIR, { withFileTypes: true });
+    for (const entry of epics) {
+      if (!entry.isDirectory()) continue;
+      const epic = entry.name;
+      const epicDir = path.join(WORK_DIR, epic);
+      for (const file of fs.readdirSync(epicDir)) {
+        if (!/^TASK-\d{3}\.md$/.test(file)) continue;
+        const filePath = path.join(epicDir, file);
+        const task = parseTaskFile(filePath);
+        if (!task || !RECONCILE_STALE.includes(task.status) || !task.id || !task.epic) continue;
+        const meta = readTaskRunMeta(epic, task.id);
+        if (!meta) continue; // no sidecar: likely a manual run, leave untouched
+        if (isPidAlive(meta.pid)) continue;
+        removeTaskRunMeta(epic, task.id);
+        resetTaskToReady(filePath, task);
+      }
+    }
+  } catch {
+    // WORK_DIR temporarily unavailable — skip this reconcile cycle
+  }
+}
+
 // ---------------------------------------------------------------------------
 // SSE client registry (T-05-08: connection leak prevention)
 // ---------------------------------------------------------------------------
@@ -229,6 +316,7 @@ function pushTestEvent(epic, info) {
 
 const app = express();
 app.use(express.json());
+fs.mkdirSync(TASK_RUN_DIR, { recursive: true });
 
 // Global CORS middleware — allows browser clients (Phase 6 Vite) to reach all endpoints.
 // Without this, POST /tasks/:id/stop fails the browser preflight (OPTIONS returns 404).
@@ -385,6 +473,15 @@ const VALID_STATUSES = new Set([
   // 'stopped' intentionally excluded — set only via POST /tasks/:id/stop
 ]);
 
+// VALID_AGENTS: which CLI drives the pipeline/gate for a launch. The board sends
+// a per-epic choice; anything unknown (or missing) falls back to 'claude'.
+// Passed as the first positional arg to run-task.sh / run-test.sh, so it MUST
+// stay a strict allowlist (no shell injection via the osascript write text).
+const VALID_AGENTS = new Set(['claude', 'cursor']);
+function normalizeAgent(a) {
+  return VALID_AGENTS.has(a) ? a : 'claude';
+}
+
 // PATCH /tasks/:id/status — update task status via drag-and-drop (D-05, D-06)
 app.patch('/tasks/:epic/:id/status', (req, res) => {
   try {
@@ -420,22 +517,25 @@ app.patch('/tasks/:epic/:id/status', (req, res) => {
       const onDisk = parseTaskFile(found);
       const recent = spawnedTasks.get(uid);
       const recentlySpawned = recent && (Date.now() - recent) < SPAWN_COOLDOWN_MS;
+      const runMeta = readTaskRunMeta(epic, taskId);
+      const runnerAlive = !!(runMeta && isPidAlive(runMeta.pid));
 
       // Dedup guard: a terminal is already running this task if either the file
       // already reads inProgress (agent flipped it) or we spawned one recently.
       // Skip the spawn instead of opening a conflicting second terminal.
-      if ((onDisk && onDisk.status === 'inProgress') || recentlySpawned) {
+      if ((onDisk && onDisk.status === 'inProgress') || runnerAlive || recentlySpawned) {
         return res.json({ ok: true, task: onDisk, alreadyRunning: true });
       }
 
       spawnedTasks.set(uid, Date.now());
+      const agent = normalizeAgent(req.body.agent);
       const script = path.join(__dirname, 'run-task.sh');
       spawn('osascript', [
         '-e', `tell application "iTerm"`,
         '-e', `  tell current window`,
         '-e', `    create tab with default profile`,
         '-e', `    tell current session`,
-        '-e', `      write text "bash '${script}' ${epic}/${taskId}"`,
+        '-e', `      write text "bash '${script}' ${agent} ${epic}/${taskId}"`,
         '-e', `    end tell`,
         '-e', `  end tell`,
         '-e', `end tell`,
@@ -499,13 +599,14 @@ app.post('/epics/:epic/test', (req, res) => {
     // and is pushed to all boards via the chokidar watcher below.
     writeInProgressReport(epic);
 
+    const agent = normalizeAgent(req.body.agent);
     const script = path.join(__dirname, 'run-test.sh');
     spawn('osascript', [
       '-e', `tell application "iTerm"`,
       '-e', `  tell current window`,
       '-e', `    create tab with default profile`,
       '-e', `    tell current session`,
-      '-e', `      write text "bash '${script}' ${epic}"`,
+      '-e', `      write text "bash '${script}' ${agent} ${epic}"`,
       '-e', `    end tell`,
       '-e', `  end tell`,
       '-e', `end tell`,
@@ -553,6 +654,7 @@ chokidar.watch(WORK_DIR + '/**/*.md', {
       // re-run (e.g. after stop) is allowed to open a fresh terminal.
       if (t.id && t.epic && NOT_RUNNING.includes(t.status)) {
         spawnedTasks.delete(t.epic + '/' + t.id);
+        removeTaskRunMeta(t.epic, t.id);
       }
       pushEvent(t);
     }
@@ -599,3 +701,7 @@ app.use((req, res, next) => {
 app.listen(PORT, function () {
   console.log('kanban-server listening on :' + PORT);
 });
+
+// Run on boot + periodically so stale inProgress cards self-heal.
+reconcileStaleInProgressTasks();
+setInterval(reconcileStaleInProgressTasks, 5000);
