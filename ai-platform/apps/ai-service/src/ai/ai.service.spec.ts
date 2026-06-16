@@ -471,6 +471,12 @@ describe('AiService agent loop', () => {
     }
     // Single LLM stream for the answer — not the bounded tool-use loop.
     expect(mocks.chat).toHaveBeenCalledTimes(1);
+    // The answer call is reason-capped and bounded so a reasoning model cannot
+    // run unbounded or burn the whole budget on hidden reasoning (empty content).
+    expect(mocks.chat).toHaveBeenCalledWith(expect.any(Array), {
+      maxTokens: AiService.ANSWER_MAX_TOKENS,
+      disableThinking: true,
+    });
   });
 
   describe('lane routing (TASK-006)', () => {

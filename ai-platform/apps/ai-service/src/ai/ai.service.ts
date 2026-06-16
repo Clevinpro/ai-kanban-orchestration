@@ -50,6 +50,14 @@ const DEFAULT_TIMEOUT_MS = 90_000;
 const PLANNER_MAX_TOKENS = 512;
 
 /**
+ * Token cap for the single-shot answer lanes (capability / technical). Larger
+ * than the planner cap because the output is the full user-facing answer, not a
+ * one-line decision. Paired with `disableThinking` so a reasoning model caps its
+ * reasoning and the visible answer fits this budget.
+ */
+const ANSWER_MAX_TOKENS = 2048;
+
+/**
  * Sentinel markers the planner must use so the loop can deterministically
  * decide between dispatching a registered tool and emitting the final answer.
  *
@@ -122,6 +130,9 @@ type AgentDecision = ParsedDecision & {
 export class AiService {
   /** Token cap applied to each planner LLM call in the agent loop. */
   static readonly PLANNER_MAX_TOKENS = PLANNER_MAX_TOKENS;
+
+  /** Token cap applied to the single-shot capability / technical answer call. */
+  static readonly ANSWER_MAX_TOKENS = ANSWER_MAX_TOKENS;
 
   static readonly CAPABILITY_VAULT_PREFIX = 'docs/obsidian-vault/project/';
 
@@ -902,7 +913,14 @@ export class AiService {
     );
 
     emitStatus('llm_start', 'Sending request to the model...');
-    const stream = provider.chat(messages);
+    // Reason-cap and bound the answer call: like the agent planner, request
+    // `disableThinking` so reasoning models do not burn the budget on a hidden
+    // reasoning channel (which left these lanes returning empty content and
+    // running unbounded). A generous token cap leaves room for a full answer.
+    const stream = provider.chat(messages, {
+      maxTokens: ANSWER_MAX_TOKENS,
+      disableThinking: true,
+    });
 
     const subject = new BehaviorSubject<string>('');
     let collected = '';

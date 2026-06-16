@@ -1,4 +1,4 @@
-import { AiChatMessage, IAIProvider, LoggerService } from '@ai-platform/shared';
+import { AiChatMessage, AiChatOptions, IAIProvider, LoggerService } from '@ai-platform/shared';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios, { isAxiosError } from 'axios';
@@ -87,7 +87,7 @@ export class LmStudioProvider implements IAIProvider {
     return this.resolveModel();
   }
 
-  chat(message: AiChatMessage): Observable<string> {
+  chat(message: AiChatMessage, options?: AiChatOptions): Observable<string> {
     return new Observable<string>((subscriber) => {
       let stream: Readable | undefined;
       let closed = false;
@@ -117,13 +117,28 @@ export class LmStudioProvider implements IAIProvider {
           const model = await this.resolveModel();
           this.logger.log(`LM Studio chat request: model=${model}`, 'LmStudioProvider');
           const messages = LmStudioProvider.toOpenAiMessages(message);
+          const requestBody: Record<string, unknown> = {
+            model,
+            messages,
+            stream: true,
+          };
+          if (options?.maxTokens !== undefined) {
+            requestBody.max_tokens = options.maxTokens;
+          }
+          if (options?.disableThinking) {
+            // `enable_thinking:false` is honored by some chat templates, but
+            // several reasoning MLX builds (e.g. qwen3.6) ignore it and spend the
+            // whole token budget on a hidden reasoning channel, returning empty
+            // `content`. `reasoning_effort:"low"` *is* honored and collapses the
+            // reasoning to a handful of tokens, so the visible answer fits the
+            // budget and arrives fast. Send both for broad compatibility.
+            requestBody.chat_template_kwargs = { enable_thinking: false };
+            requestBody.reasoning_effort = 'low';
+          }
+
           const response = await axios.post<Readable>(
             `${this.baseUrl}/chat/completions`,
-            {
-              model,
-              messages,
-              stream: true,
-            },
+            requestBody,
             { responseType: 'stream' },
           );
 

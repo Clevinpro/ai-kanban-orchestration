@@ -355,4 +355,28 @@ describe('LmStudioProvider.chat — request shape', () => {
     const body = mockedAxiosPost.mock.calls[0][1] as Record<string, unknown>;
     expect(body.model).toBe('auto-model');
   });
+
+  it('forwards max_tokens and disableThinking when chat options are provided', async () => {
+    const { provider } = makeProvider({ LMSTUDIO_CHAT_MODEL: 'model-x' });
+    const stream = wireChatStream();
+
+    const done = lastValueFrom(
+      provider.chat('hi', { maxTokens: 512, disableThinking: true }).pipe(toArray()),
+    );
+    await new Promise((r) => setImmediate(r));
+    stream.emitData('data: [DONE]\n');
+    await done;
+
+    const body = mockedAxiosPost.mock.calls[0][1] as Record<string, unknown>;
+    expect(body).toEqual({
+      model: 'model-x',
+      messages: [{ role: 'user', content: 'hi' }],
+      stream: true,
+      max_tokens: 512,
+      // Both knobs are sent: `enable_thinking:false` for templates that honor it,
+      // and `reasoning_effort:'low'` for reasoning MLX builds that ignore it.
+      chat_template_kwargs: { enable_thinking: false },
+      reasoning_effort: 'low',
+    });
+  });
 });
