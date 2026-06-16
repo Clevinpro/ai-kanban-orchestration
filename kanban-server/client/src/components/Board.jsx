@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import TaskCard from './TaskCard';
 import AgentSelect from './AgentSelect';
-import { formatDuration, fmtDate } from '../timeUtils';
+import { formatDuration, formatDurationMs, spanMs, fmtDate } from '../timeUtils';
 
 const COLUMN_ORDER = [
   'readyForDevelop',
@@ -63,10 +63,28 @@ function epicTimes(epic, tasks, fullyDone) {
   return { startedAt, completedAt: fullyDone ? completedAt : null };
 }
 
+// Total active epic time = sum of each task's OWN duration (completed-at − started-at)
+// plus the epic test duration. This is the work actually spent, NOT the wall-clock
+// span from the first task's start to the last task's (or the test's) end — which
+// would also count idle gaps between tasks.
+function epicTotalMs(epic, tasks, test) {
+  let ms = 0;
+  for (const col of COLUMN_ORDER) {
+    for (const t of tasks[col] || []) {
+      if (t.epic !== epic) continue;
+      ms += spanMs(t['started-at'], t['completed-at']);
+    }
+  }
+  ms += spanMs(test?.startedAt, test?.endedAt);
+  return ms;
+}
+
 // One "label: ▶ start → ✓ end (duration)" line for the expanded epic header.
-function TimeRow({ label, startedAt, endedAt }) {
+// hideDuration drops the parenthetical span (used for the Epic row, whose real
+// metric is the summed Total below — the span would be misleading there).
+function TimeRow({ label, startedAt, endedAt, hideDuration }) {
   if (!startedAt && !endedAt) return null;
-  const duration = formatDuration(startedAt, endedAt);
+  const duration = hideDuration ? null : formatDuration(startedAt, endedAt);
   return (
     <div className="flex items-center gap-1 normal-case font-normal">
       <span className="opacity-60 w-7 flex-shrink-0">{label}</span>
@@ -191,6 +209,7 @@ export default function Board({ tasks, dispatch, autoRunEpics = {}, toggleEpicAu
                             ? 'Re-run /team-lead:test (failed ACs only)'
                             : 'Run /team-lead:test ' + epic;
                       const times = isOpen ? epicTimes(epic, tasks, fullyDone) : null;
+                      const totalMs = isOpen ? epicTotalMs(epic, tasks, test) : 0;
                       return (
                         <div
                           key={epic}
@@ -239,8 +258,15 @@ export default function Board({ tasks, dispatch, autoRunEpics = {}, toggleEpicAu
                           </div>
                           {isOpen && (times?.startedAt || test?.startedAt || test?.endedAt) && (
                             <div className="mt-1 pt-1 border-t border-current/20 text-[10px] flex flex-col gap-0.5">
-                              <TimeRow label="Epic" startedAt={times?.startedAt} endedAt={times?.completedAt} />
+                              <TimeRow label="Epic" startedAt={times?.startedAt} endedAt={times?.completedAt} hideDuration />
                               <TimeRow label="Test" startedAt={test?.startedAt} endedAt={test?.endedAt} />
+                              {totalMs > 0 && (
+                                <div className="flex items-center gap-1 normal-case font-normal">
+                                  <span className="opacity-60 w-7 flex-shrink-0">Σ</span>
+                                  <span className="opacity-90 font-semibold">{formatDurationMs(totalMs)}</span>
+                                  <span className="opacity-50">total (Σ tasks + test)</span>
+                                </div>
+                              )}
                             </div>
                           )}
                           </div>
