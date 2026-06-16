@@ -4,6 +4,7 @@
   "license": "MIT",
   "scripts": {
     "start": "nx run-many --target=serve --projects=auth,shell,chat --parallel=3",
+    "start:debug": "open -na \"Google Chrome\" --args --remote-debugging-port=9222 --user-data-dir=\"$HOME/.cache/chrome-debug-profile\" --no-first-run --no-default-browser-check http://localhost:3000; npm start",
     "prepare": "husky",
     "lint": "nx run-many --target=lint",
     "lint:fix": "nx run-many --target=lint --fix",

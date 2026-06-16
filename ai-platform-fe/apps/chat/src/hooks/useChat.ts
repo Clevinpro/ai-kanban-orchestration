@@ -1,4 +1,10 @@
-import { sendMessage as chatApiSendMessage, type IChatMessage } from '@libs/api';
+import {
+  cancelMessage as chatApiCancelMessage,
+  sendMessage as chatApiSendMessage,
+  type AgentBudget,
+  type AgentEvent,
+  type IChatMessage,
+} from '@libs/api';
 import {
   clearPendingStream,
   getElapsedSeconds,
@@ -20,6 +26,24 @@ export type UseChatOptions = {
   onConversationId?: (id: string) => void;
 };
 
+// Optional safeguard limits forwarded to the tool-use chat loop.
+export type SendMessageLimits = {
+  maxIterations?: number;
+  tokenBudget?: number;
+  timeoutMs?: number;
+};
+
+// A tool invocation surfaced in the UI, derived from tool_call / tool_result
+// agent events. `input` carries the call arguments; `output` is filled in when
+// the matching tool_result for the same iteration arrives.
+export type ToolCall = {
+  iteration: number;
+  tool: string;
+  input?: string;
+  output?: string;
+  status: 'tool_call' | 'tool_result';
+};
+
 export function useChat(conversationId: string | null, options?: UseChatOptions) {
   const queryClient = useQueryClient();
   const onConversationIdRef = useRef(options?.onConversationId);
@@ -28,6 +52,11 @@ export function useChat(conversationId: string | null, options?: UseChatOptions)
   const [messages, setMessages] = useState<IChatMessage[]>([]);
   const [streaming, setStreaming] = useState(false);
   const [localConversationId, setLocalConversationId] = useState<string | null>(null);
+
+  // Tool-use progress state, accumulated from `agent` stream events.
+  const [steps, setSteps] = useState<AgentEvent[]>([]);
+  const [toolCalls, setToolCalls] = useState<ToolCall[]>([]);
+  const [budget, setBudget] = useState<AgentBudget | null>(null);
 
   const inFlightRef = useRef(false);
   const lastOptimisticResponseRef = useRef<{
@@ -203,6 +232,58 @@ export function useChat(conversationId: string | null, options?: UseChatOptions)
           finishStream();
         },
 
+        // Agent tool/budget progress: accumulate each event as a step, derive
+        // tool calls from tool_call / tool_result events, and keep the latest
+        // budget snapshot.
+        onAgentEvent: (event) => {
+          setSteps((prev) => [...prev, event]);
+
+          if (event.budget) {
+            setBudget(event.budget);
+          }
+
+          if (event.status === 'tool_call' && event.tool) {
+            setToolCalls((prev) => [
+              ...prev,
+              {
+                iteration: event.iteration,
+                tool: event.tool as string,
+                input: event.input,
+                status: 'tool_call',
+              },
+            ]);
+          } else if (event.status === 'tool_result' && event.tool) {
+            setToolCalls((prev) => {
+              // Match the pending tool_call for the same iteration/tool and fill
+              // in its output; fall back to appending if no match is found.
+              const matchIdx = prev.findIndex(
+                (call) =>
+                  call.iteration === event.iteration &&
+                  call.tool === event.tool &&
+                  call.status === 'tool_call',
+              );
+              if (matchIdx === -1) {
+                return [
+                  ...prev,
+                  {
+                    iteration: event.iteration,
+                    tool: event.tool as string,
+                    output: event.input,
+                    status: 'tool_result',
+                  },
+                ];
+              }
+              const next = [...prev];
+              next[matchIdx] = {
+                ...next[matchIdx],
+                output: event.input,
+                status: 'tool_result',
+              };
+              return next;
+            });
+          }
+        },
+
         onFallback: () => {
           cancelStatusQueue();
           finishStream();
@@ -285,7 +366,7 @@ export function useChat(conversationId: string | null, options?: UseChatOptions)
   }, [connectStream, conversationId, loadingHistory, startIdleTimeout]);
 
   const sendMessage = useCallback(
-    async (text: string) => {
+    async (text: string, limits?: SendMessageLimits) => {
       const trimmed = text.trim();
       if (!trimmed || inFlightRef.current) return;
 
@@ -296,6 +377,10 @@ export function useChat(conversationId: string | null, options?: UseChatOptions)
 
       inFlightRef.current = true;
       setStreaming(true);
+      // Reset tool-use progress for the new run.
+      setSteps([]);
+      setToolCalls([]);
+      setBudget(null);
       setMessages((prev) => [
         ...prev,
         { role: 'user', content: trimmed, id: userMessageId, createdAt },
@@ -315,6 +400,11 @@ export function useChat(conversationId: string | null, options?: UseChatOptions)
         const response = await chatApiSendMessage({
           message: trimmed,
           conversationId: convForSend,
+          // Forward safeguard limits only when provided so the legacy request
+          // shape is preserved when they are omitted.
+          ...(limits?.maxIterations !== undefined && { maxIterations: limits.maxIterations }),
+          ...(limits?.tokenBudget !== undefined && { tokenBudget: limits.tokenBudget }),
+          ...(limits?.timeoutMs !== undefined && { timeoutMs: limits.timeoutMs }),
         });
         const nextConversationId = response.conversationId ?? convForSend;
         if (nextConversationId) {
@@ -341,5 +431,28 @@ export function useChat(conversationId: string | null, options?: UseChatOptions)
     [cancelStatusQueue, connectStream, disconnect, effectiveConversationId, rememberConversationId],
   );
 
-  return { messages, streaming, loadingHistory, sendMessage };
+  // Cancels the active tool-use run for the current conversation and tears down
+  // the in-flight stream/state cleanly.
+  const stop = useCallback(async () => {
+    if (!inFlightRef.current) return;
+
+    const convToCancel = effectiveConversationId ?? undefined;
+
+    // Tear down local stream state first so the UI stops immediately, even if
+    // the cancel request is slow or fails.
+    cancelStatusQueue();
+    disconnect();
+    inFlightRef.current = false;
+    setStreaming(false);
+    if (convToCancel) clearPendingStream(convToCancel);
+
+    if (!convToCancel) return;
+    try {
+      await chatApiCancelMessage(convToCancel);
+    } catch {
+      // Best-effort: the local stream is already torn down regardless.
+    }
+  }, [cancelStatusQueue, disconnect, effectiveConversationId]);
+
+  return { messages, streaming, loadingHistory, sendMessage, steps, toolCalls, budget, stop };
 }
