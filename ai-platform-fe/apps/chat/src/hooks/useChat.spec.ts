@@ -50,7 +50,13 @@ const connect = vi.fn((_convId: string | null, handlers: StreamHandlers) => {
   return Promise.resolve();
 });
 const disconnect = vi.fn();
-const startIdleTimeout = vi.fn(() => () => undefined);
+// Capture the give-up callback passed to startIdleTimeout so a test can fire it
+// to simulate the bounded reconnect window elapsing with no stream events.
+let capturedIdleTimeout: (() => void) | null = null;
+const startIdleTimeout = vi.fn((onTimeout: () => void) => {
+  capturedIdleTimeout = onTimeout;
+  return () => undefined;
+});
 
 vi.mock('./useStreamConnection', () => ({
   useStreamConnection: () => ({ connect, disconnect, startIdleTimeout }),
@@ -63,6 +69,7 @@ vi.mock('./useStatusQueue', () => ({
 describe('useChat', () => {
   beforeEach(() => {
     capturedHandlers = null;
+    capturedIdleTimeout = null;
     connect.mockClear();
     disconnect.mockClear();
     startIdleTimeout.mockClear();
@@ -147,6 +154,35 @@ describe('useChat', () => {
     await waitFor(() => expect(result.current.streaming).toBe(false));
   });
 
+  it('newChat() resets in-flight state so sendMessage works immediately', async () => {
+    const { result } = renderHook(() => useChat('conv-1'));
+
+    // First send leaves the stream in-flight (no complete/error driven).
+    await act(async () => {
+      await result.current.sendMessage('first message');
+    });
+    expect(result.current.streaming).toBe(true);
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+
+    // New Chat must tear down the in-flight stream and clear the prior marker.
+    act(() => {
+      result.current.newChat();
+    });
+    expect(result.current.streaming).toBe(false);
+    expect(disconnect).toHaveBeenCalled();
+    expect(pendingStreamStubs.clearPendingStream).toHaveBeenCalledWith('conv-1');
+    expect(result.current.messages).toEqual([]);
+
+    // The next send is NOT early-returned: it reaches the API again.
+    await act(async () => {
+      await result.current.sendMessage('second message');
+    });
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+    expect(sendMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({ message: 'second message' }),
+    );
+  });
+
   it('regression: a plain chat with no limits and no agent events behaves as today', async () => {
     const { result } = renderHook(() => useChat('conv-1'));
 
@@ -175,5 +211,73 @@ describe('useChat', () => {
     const assistant = result.current.messages.find((m) => m.role === 'assistant');
     expect(assistant?.content).toBe('hi there');
     await waitFor(() => expect(result.current.streaming).toBe(false));
+  });
+
+  it('completes with no streamed content: empty bubble becomes a terminal notice, not a stuck "thinking"', async () => {
+    const { result } = renderHook(() => useChat('conv-1'));
+
+    await act(async () => {
+      await result.current.sendMessage('say something');
+    });
+
+    // The run completes without ever delivering a chunk (backend streamed an
+    // empty final answer). The assistant placeholder must not stay empty.
+    act(() => {
+      capturedHandlers?.onComplete('conv-1');
+    });
+
+    const assistant = result.current.messages.find((m) => m.role === 'assistant');
+    expect(assistant?.content.trim().length).toBeGreaterThan(0);
+    expect(assistant?.content).toMatch(/empty response/i);
+    expect(assistant?.status).toBeUndefined();
+    await waitFor(() => expect(result.current.streaming).toBe(false));
+  });
+
+  it('reconnect give-up transitions to a terminal run-ended state and releases inFlight', async () => {
+    // A pending stream for this conversation triggers the reconnect effect.
+    // clearPendingStream must make subsequent reads return null so the reconnect
+    // effect does not immediately re-attach after give-up (mirrors real storage).
+    pendingStreamStubs.readPendingStream.mockReturnValue({
+      conversationId: 'conv-1',
+      createdAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+    });
+    pendingStreamStubs.clearPendingStream.mockImplementation(() => {
+      pendingStreamStubs.readPendingStream.mockReturnValue(null);
+    });
+
+    const { result } = renderHook(() => useChat('conv-1'));
+
+    // The reconnect effect attached and registered a give-up callback while it
+    // streams an empty "Reconnecting to stream..." placeholder.
+    await waitFor(() => expect(capturedIdleTimeout).not.toBeNull());
+    expect(result.current.streaming).toBe(true);
+    const placeholder = result.current.messages.find((m) => m.role === 'assistant');
+    expect(placeholder?.status).toBe('Reconnecting to stream...');
+    expect(placeholder?.content).toBe('');
+
+    // Simulate the bounded window elapsing with no stream events.
+    act(() => {
+      capturedIdleTimeout?.();
+    });
+
+    // Terminal state: inFlight released (input re-enabled), pending marker
+    // cleared, and the empty placeholder replaced by a run-ended message.
+    await waitFor(() => expect(result.current.streaming).toBe(false));
+    expect(pendingStreamStubs.clearPendingStream).toHaveBeenCalledWith('conv-1');
+
+    expect(result.current.messages.some((m) => m.role === 'assistant' && m.content === '')).toBe(
+      false,
+    );
+    const terminal = result.current.messages.find((m) => m.role === 'system');
+    expect(terminal?.content).toMatch(/ended or timed out/i);
+
+    // Input is usable again: a fresh send reaches the API rather than being
+    // early-returned by a stuck inFlightRef.
+    await act(async () => {
+      await result.current.sendMessage('retry now');
+    });
+    expect(sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'retry now', conversationId: 'conv-1' }),
+    );
   });
 });

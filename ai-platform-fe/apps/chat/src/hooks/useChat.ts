@@ -21,6 +21,9 @@ import { useStreamConnection } from './useStreamConnection';
 
 const RESPONSE_RECEIVE_ERROR_MESSAGE = 'Could not receive AI response. Please try again.';
 const RESPONSE_SEND_ERROR_MESSAGE = 'Could not send message. Please try again.';
+const RECONNECT_GAVE_UP_MESSAGE =
+  'The previous run ended or timed out. Please send your message again.';
+const EMPTY_RESPONSE_MESSAGE = 'The model returned an empty response. Please try again.';
 
 export type UseChatOptions = {
   onConversationId?: (id: string) => void;
@@ -213,7 +216,13 @@ export function useChat(conversationId: string | null, options?: UseChatOptions)
               if (msg.id !== pendingAssistantId) return msg;
               const responseSeconds = getElapsedSeconds(msg.createdAt);
               pendingResponseSecondsRef.current = responseSeconds;
-              return { ...msg, status: undefined, responseSeconds };
+              // Safety net: a completed run with no streamed content would
+              // otherwise stay on the "Model is thinking..." placeholder forever
+              // (the bubble shows it whenever assistant content is empty). Fill a
+              // terminal notice so input is clearly usable again.
+              const content =
+                msg.content.trim().length === 0 ? EMPTY_RESPONSE_MESSAGE : msg.content;
+              return { ...msg, content, status: undefined, responseSeconds };
             }),
           );
           clearPendingStream(resolvedConvId);
@@ -308,6 +317,10 @@ export function useChat(conversationId: string | null, options?: UseChatOptions)
     }
 
     const pendingAssistantId = crypto.randomUUID();
+    // Anchor the elapsed counter to when this reconnect begins, not the original
+    // message's createdAt — otherwise a fresh reconnect is reported as minutes
+    // old (the run may have started long before the reload).
+    const reconnectStartedAt = new Date().toISOString();
     inFlightRef.current = true;
     setStreaming(true);
     setMessages((prev) => {
@@ -320,8 +333,9 @@ export function useChat(conversationId: string | null, options?: UseChatOptions)
             ? {
                 ...msg,
                 id: pendingAssistantId,
+                createdAt: reconnectStartedAt,
                 status: msg.status ?? 'Reconnecting to stream...',
-                responseSeconds: getElapsedSeconds(msg.createdAt),
+                responseSeconds: getElapsedSeconds(reconnectStartedAt),
               }
             : msg,
         );
@@ -332,26 +346,38 @@ export function useChat(conversationId: string | null, options?: UseChatOptions)
           role: 'assistant',
           content: '',
           id: pendingAssistantId,
-          createdAt: pending.createdAt,
+          createdAt: reconnectStartedAt,
           status: 'Reconnecting to stream...',
-          responseSeconds: getElapsedSeconds(pending.createdAt),
+          responseSeconds: getElapsedSeconds(reconnectStartedAt),
         },
       ];
     });
 
+    // Give-up: when the reconnect produces no events within the bounded window,
+    // transition to a terminal state — clear the pending marker, release
+    // inFlightRef (re-enabling input), and replace the empty placeholder with a
+    // terminal "run ended / timed out" message instead of a perpetual
+    // "Reconnecting to stream...".
     const clearIdleTimeout = startIdleTimeout(() => {
       clearPendingStream(conversationId);
       inFlightRef.current = false;
       setStreaming(false);
       setMessages((prev) =>
-        prev.filter(
-          (msg) =>
-            !(
-              msg.id === pendingAssistantId &&
-              msg.role === 'assistant' &&
-              msg.content.trim().length === 0
-            ),
-        ),
+        prev.flatMap((msg) => {
+          const isEmptyPlaceholder =
+            msg.id === pendingAssistantId &&
+            msg.role === 'assistant' &&
+            msg.content.trim().length === 0;
+          if (!isEmptyPlaceholder) return [msg];
+          return [
+            {
+              role: 'system' as const,
+              content: RECONNECT_GAVE_UP_MESSAGE,
+              id: crypto.randomUUID(),
+              createdAt: new Date().toISOString(),
+            },
+          ];
+        }),
       );
     });
 
@@ -431,6 +457,30 @@ export function useChat(conversationId: string | null, options?: UseChatOptions)
     [cancelStatusQueue, connectStream, disconnect, effectiveConversationId, rememberConversationId],
   );
 
+  // Resets in-flight stream state so a brand-new chat can send a message
+  // immediately. A prior run may have left `inFlightRef` set (e.g. the reconnect
+  // effect attaching to a now-dead stream after a reload), which would make
+  // `sendMessage` early-return and silently drop the first message. Tear down
+  // the live connection, clear the pending-stream marker for the prior
+  // conversation, and reset local state before the caller creates the new chat.
+  const newChat = useCallback(() => {
+    const priorConversationId = effectiveConversationId ?? undefined;
+
+    cancelStatusQueue();
+    disconnect();
+    inFlightRef.current = false;
+    setStreaming(false);
+    if (priorConversationId) clearPendingStream(priorConversationId);
+
+    lastOptimisticResponseRef.current = null;
+    pendingResponseSecondsRef.current = undefined;
+    setLocalConversationId(null);
+    setMessages([]);
+    setSteps([]);
+    setToolCalls([]);
+    setBudget(null);
+  }, [cancelStatusQueue, disconnect, effectiveConversationId]);
+
   // Cancels the active tool-use run for the current conversation and tears down
   // the in-flight stream/state cleanly.
   const stop = useCallback(async () => {
@@ -454,5 +504,15 @@ export function useChat(conversationId: string | null, options?: UseChatOptions)
     }
   }, [cancelStatusQueue, disconnect, effectiveConversationId]);
 
-  return { messages, streaming, loadingHistory, sendMessage, steps, toolCalls, budget, stop };
+  return {
+    messages,
+    streaming,
+    loadingHistory,
+    sendMessage,
+    steps,
+    toolCalls,
+    budget,
+    stop,
+    newChat,
+  };
 }
