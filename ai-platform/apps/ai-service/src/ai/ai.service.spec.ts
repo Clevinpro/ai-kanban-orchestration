@@ -1,11 +1,8 @@
-import type { AgentEvent } from '@ai-platform/shared';
+import type { AgentEvent, AiChatOptions } from '@ai-platform/shared';
 import { Observable, of } from 'rxjs';
 import { AiService } from './ai.service';
 import { QueryRouterService } from './query-router.service';
-import {
-  IterationCapExceededError,
-  TokenBudgetExceededError,
-} from './safeguards/errors';
+import { IterationCapExceededError, TokenBudgetExceededError } from './safeguards/errors';
 import { createRagSearchTool, RAG_SEARCH_TOOL_NAME } from './tools/rag-search.tool';
 import { TAG_QUERY_TOOL_NAME } from './tools/tag-query.tool';
 import { ToolRegistry } from './tools/tool-registry';
@@ -46,7 +43,7 @@ function asyncStream(...chunks: string[]): Observable<string> {
  * mocked so no real retrieval runs.
  */
 describe('AiService agent loop', () => {
-  type ChatMock = jest.Mock<Observable<string>, [unknown]>;
+  type ChatMock = jest.Mock<Observable<string>, [unknown, AiChatOptions?]>;
 
   interface Mocks {
     service: AiService;
@@ -56,6 +53,7 @@ describe('AiService agent loop', () => {
     isCapabilityQuery: jest.Mock;
     loadHistory: jest.Mock;
     saveMessage: jest.Mock;
+    createConversation: jest.Mock;
     registry: ToolRegistry;
     tagToolRun: jest.Mock;
     queryRouter: QueryRouterService;
@@ -75,10 +73,11 @@ describe('AiService agent loop', () => {
     const isCapabilityQuery = jest.fn().mockResolvedValue(false);
     const loadHistory = jest.fn().mockResolvedValue([]);
     const saveMessage = jest.fn().mockResolvedValue(undefined);
+    const createConversation = jest.fn().mockResolvedValue('conv-created');
 
     const searchService = { similaritySearch, formatContext };
     const factory = { getProvider: jest.fn().mockReturnValue({ chat }) };
-    const conversationService = { loadHistory, saveMessage };
+    const conversationService = { loadHistory, saveMessage, createConversation };
     const logger = { log: jest.fn(), warn: jest.fn(), error: jest.fn() };
     const capabilityDetector = { isCapabilityQuery };
     const queryRouter = new QueryRouterService(capabilityDetector as never);
@@ -110,6 +109,7 @@ describe('AiService agent loop', () => {
       isCapabilityQuery,
       loadHistory,
       saveMessage,
+      createConversation,
       registry,
       tagToolRun,
       queryRouter,
@@ -180,6 +180,43 @@ describe('AiService agent loop', () => {
     const toolResult = events.find((e) => e.status === 'tool_result');
     expect(toolResult?.tool).toBe(RAG_SEARCH_TOOL_NAME);
     expect(toolResult?.input).toBe('what is the policy');
+  });
+
+  it('empty final answer: streams a non-empty fallback notice so the client never hangs on a thinking bubble', async () => {
+    const mocks = buildService();
+
+    // The model emits the FINAL marker but no usable answer text (e.g. a
+    // reasoning model whose stripped <think> block left nothing behind).
+    mocks.chat.mockReturnValueOnce(of('FINAL:    '));
+
+    const { text, events, error } = await collectRun(mocks.service, {
+      message: 'say something',
+      mode: 'agent',
+    });
+
+    expect(error).toBeUndefined();
+    // A non-empty terminal answer was streamed instead of an empty string.
+    expect(text.trim().length).toBeGreaterThan(0);
+    expect(text).toContain('did not produce a usable answer');
+    // The `final` event still fired so the client transitions out of planning.
+    expect(events.map((e) => e.status)).toContain('final');
+  });
+
+  it('persists the fallback notice (not an empty string) when the final answer is empty', async () => {
+    const mocks = buildService();
+    mocks.chat.mockReturnValueOnce(of('FINAL: '));
+
+    await collectRun(mocks.service, {
+      message: 'say something',
+      mode: 'agent',
+      conversationId: 'conv-empty',
+    });
+
+    const assistantSave = mocks.saveMessage.mock.calls
+      .map((call) => call[0] as { role: string; content: string })
+      .find((arg) => arg.role === 'assistant');
+    expect(assistantSave?.content.trim().length).toBeGreaterThan(0);
+    expect(assistantSave?.content).toContain('did not produce a usable answer');
   });
 
   it('dispatches an arbitrary registered tool by name with no loop-body edits', async () => {
@@ -305,6 +342,48 @@ describe('AiService agent loop', () => {
       tokenBudget: 5000,
       timeoutMs: 30000,
     });
+  });
+
+  it('planner calls pass bounded max_tokens and disableThinking to the provider', async () => {
+    const mocks = buildService();
+    mocks.chat.mockReturnValueOnce(of('FINAL: bounded'));
+
+    await collectRun(mocks.service, {
+      message: 'quick answer',
+      mode: 'agent',
+    });
+
+    expect(mocks.chat).toHaveBeenCalledWith(expect.any(Array), {
+      maxTokens: AiService.PLANNER_MAX_TOKENS,
+      disableThinking: true,
+    });
+  });
+
+  it('planner runaway: a reasoning stream cut by max_tokens terminates with a parseable decision', async () => {
+    const mocks = buildService();
+    // Simulate a reasoning model that would never emit FINAL: — the provider
+    // enforces max_tokens and completes with truncated thinking text.
+    mocks.chat.mockImplementation((_messages, options) => {
+      expect(options).toEqual({
+        maxTokens: AiService.PLANNER_MAX_TOKENS,
+        disableThinking: true,
+      });
+      const maxTokens = options?.maxTokens ?? AiService.PLANNER_MAX_TOKENS;
+      const runaway = 'Let me think step by step... '.repeat(200);
+      const truncated = runaway.slice(0, maxTokens);
+      return asyncStream(truncated);
+    });
+
+    const { text, error } = await collectRun(mocks.service, {
+      message: 'stale history question',
+      mode: 'agent',
+    });
+
+    expect(error).toBeUndefined();
+    // No FINAL marker — parseAgentDecision falls back to the accumulated text.
+    expect(text.length).toBeGreaterThan(0);
+    expect(text.length).toBeLessThanOrEqual(AiService.PLANNER_MAX_TOKENS);
+    expect(mocks.chat).toHaveBeenCalledTimes(1);
   });
 
   it('aborts the in-flight stream and rejects with timeout when the provider stalls past the run budget', async () => {
@@ -489,13 +568,7 @@ describe('AiService agent loop', () => {
    * round-trip as plain JSON with the stable SSE field set.
    */
   describe('complex lane regression gate (TASK-009)', () => {
-    const AGENT_EVENT_ALLOWED_KEYS = new Set([
-      'iteration',
-      'status',
-      'tool',
-      'input',
-      'budget',
-    ]);
+    const AGENT_EVENT_ALLOWED_KEYS = new Set(['iteration', 'status', 'tool', 'input', 'budget']);
 
     /** Assert an event matches the FE-facing `AgentEvent` contract. */
     function expectAgentEventContract(event: AgentEvent): void {
@@ -567,6 +640,131 @@ describe('AiService agent loop', () => {
 
       expect(error).toBeInstanceOf(TokenBudgetExceededError);
       expect((error as TokenBudgetExceededError).reason).toBe('token_budget');
+    });
+  });
+
+  /**
+   * No-conversationId lane (TASK-004 / SPEC US-03, AC-04): a complex chat
+   * request that arrives without a `conversationId` must still durably persist
+   * the user turn — carrying the run's `runId` — before generation begins, so a
+   * mid-stream failure never drops the turn.
+   */
+  describe('no-conversationId durable user turn (TASK-004)', () => {
+    /**
+     * Run with an explicit `runId` (the boundary-minted id in production) so the
+     * persisted user turn's id can be asserted, and capture the order of
+     * `createConversation` / `saveMessage` / `provider.chat` calls.
+     */
+    function runWithRunId(
+      service: AiService,
+      request: unknown,
+      runId: string,
+    ): Promise<{ text: string; error: unknown }> {
+      return new Promise((resolve) => {
+        let text = '';
+        service.processMessage(request, { runId }).subscribe({
+          next: (chunk) => {
+            text += chunk;
+          },
+          complete: () => resolve({ text, error: undefined }),
+          error: (error: unknown) => resolve({ text, error }),
+        });
+      });
+    }
+
+    it('creates a conversation and persists the user turn with the runId before the model is called', async () => {
+      const mocks = buildService();
+
+      // Order tracking: persistence must happen before generation.
+      const callOrder: string[] = [];
+      mocks.createConversation.mockImplementation(async () => {
+        callOrder.push('createConversation');
+        return 'conv-new';
+      });
+      mocks.saveMessage.mockImplementation(async () => {
+        callOrder.push('saveMessage');
+      });
+      mocks.chat.mockImplementationOnce(() => {
+        callOrder.push('chat');
+        return of('FINAL: answered');
+      });
+
+      const { text, error } = await runWithRunId(
+        mocks.service,
+        // No conversationId; userId present (forwarded from the AI_REQUEST
+        // boundary) so a conversation can be created on the fly.
+        { message: 'explain the deployment architecture in detail', userId: 'user-7' },
+        'run-no-conv',
+      );
+
+      expect(error).toBeUndefined();
+      expect(text).toBe('answered');
+
+      // A conversation was created for the owner.
+      expect(mocks.createConversation).toHaveBeenCalledTimes(1);
+      expect(mocks.createConversation).toHaveBeenCalledWith('user-7');
+
+      // The user turn was persisted against the new conversation, carrying the
+      // run's runId, before any provider.chat call.
+      const userSave = mocks.saveMessage.mock.calls.find((call) => call[0].role === 'user')?.[0];
+      expect(userSave).toEqual({
+        conversationId: 'conv-new',
+        role: 'user',
+        content: 'explain the deployment architecture in detail',
+        runId: 'run-no-conv',
+      });
+
+      // Persistence strictly precedes generation: the first chat call happens
+      // only after the conversation was created and the user turn saved.
+      expect(callOrder.indexOf('createConversation')).toBeLessThan(callOrder.indexOf('chat'));
+      expect(callOrder.indexOf('saveMessage')).toBeLessThan(callOrder.indexOf('chat'));
+    });
+
+    it('persists the assistant turn with the same runId against the created conversation', async () => {
+      const mocks = buildService();
+      mocks.chat.mockReturnValueOnce(of('FINAL: done'));
+
+      await runWithRunId(
+        mocks.service,
+        { message: 'explain the deployment architecture in detail', userId: 'user-9' },
+        'run-xyz',
+      );
+
+      const assistantSave = mocks.saveMessage.mock.calls.find(
+        (call) => call[0].role === 'assistant',
+      )?.[0];
+      expect(assistantSave).toEqual({
+        conversationId: 'conv-created',
+        role: 'assistant',
+        content: 'done',
+        runId: 'run-xyz',
+      });
+    });
+
+    it('does not drop the user turn when generation fails mid-stream', async () => {
+      const mocks = buildService();
+      // The provider errors out after the user turn was already persisted.
+      mocks.chat.mockReturnValueOnce(
+        new Observable<string>((subscriber) => {
+          subscriber.error(new Error('provider exploded'));
+        }),
+      );
+
+      const { error } = await runWithRunId(
+        mocks.service,
+        { message: 'explain the deployment architecture in detail', userId: 'user-3' },
+        'run-fail',
+      );
+
+      expect(error).toBeDefined();
+
+      // Even though generation failed, the user turn was durably persisted first.
+      const userSave = mocks.saveMessage.mock.calls.find((call) => call[0].role === 'user')?.[0];
+      expect(userSave).toMatchObject({
+        role: 'user',
+        content: 'explain the deployment architecture in detail',
+        runId: 'run-fail',
+      });
     });
   });
 });

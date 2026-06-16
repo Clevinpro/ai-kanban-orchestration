@@ -32,6 +32,24 @@ const DEFAULT_TOKEN_BUDGET = 100_000;
 const DEFAULT_TIMEOUT_MS = 90_000;
 
 /**
+ * Hard cap on tokens the planner may generate per planning turn. The planner
+ * emits a single `TOOL …` or `FINAL: …` line and does not need deep reasoning;
+ * without this bound a reasoning model can spin indefinitely on stale history.
+ * The run's wall-clock timeout and stream stall-timer remain the outer backstop.
+ *
+ * NOTE: reasoning models (e.g. qwen3 MLX builds) ignore `enable_thinking:false`
+ * and spend tokens on a hidden reasoning channel before emitting visible
+ * `content`. Raising this cap only buys the model more room to reason and makes
+ * each planning turn slower (on a large agent prompt it can exceed the run
+ * timeout), while a cap too small truncates the reasoning and yields an empty
+ * answer. There is no good value for a slow reasoning model here — the real fix
+ * is to serve a non-reasoning chat model (see LMSTUDIO_CHAT_MODEL). The cap is
+ * kept tight for fast termination; an empty answer is handled downstream by
+ * {@link EMPTY_FINAL_ANSWER_FALLBACK} so the client still gets a prompt reply.
+ */
+const PLANNER_MAX_TOKENS = 512;
+
+/**
  * Sentinel markers the planner must use so the loop can deterministically
  * decide between dispatching a registered tool and emitting the final answer.
  *
@@ -40,6 +58,14 @@ const DEFAULT_TIMEOUT_MS = 90_000;
  */
 const TOOL_MARKER = 'TOOL';
 const FINAL_MARKER = 'FINAL:';
+
+/**
+ * Streamed/persisted in place of an empty final answer so a misbehaving model
+ * (e.g. one that returns only a stripped reasoning block) never leaves the
+ * client hanging on a perpetual "thinking" bubble.
+ */
+const EMPTY_FINAL_ANSWER_FALLBACK =
+  'The model did not produce a usable answer. Please rephrase your question and try again.';
 
 /**
  * Matches a `TOOL <name>: <input>` line, capturing the tool name and its input.
@@ -51,12 +77,21 @@ const TOOL_DECISION_PATTERN = new RegExp(`${TOOL_MARKER}\\s+([^\\s:]+)\\s*:\\s*(
 type AiRequestPayload = {
   message: string;
   conversationId?: string;
+  // Owner of the request, forwarded from the AI_REQUEST boundary. Used to
+  // create a conversation on-the-fly in the no-conversationId lane so the user
+  // turn can be durably persisted before generation begins (TASK-004).
+  userId?: string;
   maxIterations: number;
   tokenBudget: number;
   timeoutMs: number;
 };
 
 type ProcessMessageOptions = {
+  // Stable run identity minted once at the AI_REQUEST boundary and threaded
+  // into every streaming lane so each lane's persistAssistantMessage shares the
+  // same runId. Optional for back-compat callers; falls back to a freshly minted
+  // id when absent.
+  runId?: string;
   onStatus?: (stage: AiStatusStage, message: string) => void;
   onAgentEvent?: (event: AgentEvent) => void;
 };
@@ -85,6 +120,9 @@ type AgentDecision = ParsedDecision & {
 
 @Injectable()
 export class AiService {
+  /** Token cap applied to each planner LLM call in the agent loop. */
+  static readonly PLANNER_MAX_TOKENS = PLANNER_MAX_TOKENS;
+
   static readonly CAPABILITY_VAULT_PREFIX = 'docs/obsidian-vault/project/';
 
   /**
@@ -120,6 +158,10 @@ export class AiService {
     const emitStatus = (stage: AiStatusStage, message: string) =>
       options?.onStatus?.(stage, message);
 
+    // Reuse the runId minted at the AI_REQUEST boundary so every lane shares one
+    // run identity; mint a fallback only for callers that omit it.
+    const runId = options?.runId ?? randomUUID();
+
     emitStatus('init', 'Preparing request...');
     this.logger.log(
       `Process message: conversationId=${payload.conversationId}, length=${payload.message.length}`,
@@ -133,18 +175,18 @@ export class AiService {
       switchMap((lane) => {
         switch (lane) {
           case 'meta':
-            return from(this.answerCapabilityQuery(payload, emitStatus)).pipe(
+            return from(this.answerCapabilityQuery(payload, runId, emitStatus)).pipe(
               switchMap((obs) => obs),
             );
           case 'structured':
-            return this.runStructuredLane(payload, emitStatus);
+            return this.runStructuredLane(payload, runId, emitStatus);
           case 'technical':
-            return from(this.answerTechnicalQuery(payload, emitStatus)).pipe(
+            return from(this.answerTechnicalQuery(payload, runId, emitStatus)).pipe(
               switchMap((obs) => obs),
             );
           case 'complex':
           default:
-            return this.runChatFlow(payload, emitStatus, options?.onAgentEvent);
+            return this.runChatFlow(payload, runId, emitStatus, options?.onAgentEvent);
         }
       }),
     );
@@ -156,6 +198,7 @@ export class AiService {
    */
   private runStructuredLane(
     payload: AiRequestPayload,
+    runId: string,
     emitStatus: (stage: AiStatusStage, message: string) => void,
   ): Observable<string> {
     const subject = new BehaviorSubject<string>('');
@@ -176,6 +219,7 @@ export class AiService {
             conversationId: payload.conversationId,
             role: 'user',
             content: payload.message,
+            runId,
           });
         }
 
@@ -187,7 +231,7 @@ export class AiService {
 
         if (payload.conversationId) {
           emitStatus('save_response', 'Saving assistant response...');
-          await this.persistAssistantMessage(payload.conversationId, observation);
+          await this.persistAssistantMessage(payload.conversationId, runId, observation);
         }
 
         subject.complete();
@@ -266,44 +310,119 @@ export class AiService {
    */
   private runChatFlow(
     payload: AiRequestPayload,
+    runId: string,
     emitStatus: (stage: AiStatusStage, message: string) => void,
     onAgentEvent?: (event: AgentEvent) => void,
   ): Observable<string> {
     const provider = this.factory.getProvider();
 
-    // Identifies this run so its registry entry is removed on settle without
+    // runId is minted once at the AI_REQUEST boundary and threaded in. It
+    // identifies this run so its registry entry is removed on settle without
     // disturbing a concurrent run that shares the same conversationId.
-    const runId = randomUUID();
 
     // Per-run safeguards. Checked outside the loop body so a runaway loop is
     // structurally impossible.
     const iterationCap = new IterationCap(payload.maxIterations);
     const timeout = new Timeout(payload.timeoutMs);
     const tokenBudget = new TokenBudget(payload.tokenBudget);
-    const killSwitch = payload.conversationId
-      ? this.registerKillSwitch(payload.conversationId, runId)
-      : new KillSwitch();
 
     const subject = new BehaviorSubject<string>('');
 
-    void this.executeAgentLoop(
-      provider,
-      payload,
-      emitStatus,
-      onAgentEvent,
-      { iterationCap, timeout, tokenBudget, killSwitch },
-      subject,
-    )
-      .catch((err: unknown) => {
+    // Resolve the conversation and durably persist the user turn before any
+    // generation begins, then run the loop. The conversationId may be minted
+    // here for the no-conversationId lane (TASK-004), so the kill-switch
+    // registration and the loop both bind to the resolved id rather than the
+    // incoming (possibly absent) payload value.
+    void (async () => {
+      let resolvedConversationId: string | undefined;
+      try {
+        resolvedConversationId = await this.ensurePersistedUserTurn(payload, runId, emitStatus);
+      } catch (err: unknown) {
         subject.error(err);
-      })
-      .finally(() => {
-        if (payload.conversationId) {
-          this.releaseKillSwitch(payload.conversationId, runId);
-        }
-      });
+        return;
+      }
+
+      const killSwitch = resolvedConversationId
+        ? this.registerKillSwitch(resolvedConversationId, runId)
+        : new KillSwitch();
+
+      // Run the loop against the resolved conversationId so history load and
+      // assistant persistence use the durable conversation, and the user turn
+      // is not re-persisted (it was already written above).
+      const loopPayload: AiRequestPayload = {
+        ...payload,
+        conversationId: resolvedConversationId,
+      };
+
+      await this.executeAgentLoop(
+        provider,
+        loopPayload,
+        runId,
+        emitStatus,
+        onAgentEvent,
+        { iterationCap, timeout, tokenBudget, killSwitch },
+        subject,
+      )
+        .catch((err: unknown) => {
+          subject.error(err);
+        })
+        .finally(() => {
+          if (resolvedConversationId) {
+            this.releaseKillSwitch(resolvedConversationId, runId);
+          }
+        });
+    })();
 
     return subject.asObservable();
+  }
+
+  /**
+   * Durably persist the user turn before generation begins and return the
+   * conversationId the run should use.
+   *
+   * Closes the no-`conversationId` gap (TASK-004 / SPEC US-03): when the request
+   * carries no `conversationId` but does carry a `userId`, a conversation is
+   * created up-front so the user turn can be written with the run's `runId`. A
+   * `Message` row requires a `conversationId` foreign key, so creating the
+   * conversation first is what makes the durable user-turn write possible at
+   * all. The write goes through the idempotent {@link ConversationService.saveMessage}
+   * (TASK-003), so a redelivered run re-uses the same `runId` without
+   * duplicating the turn.
+   *
+   * Returns `undefined` only when neither a `conversationId` nor a `userId` is
+   * available (e.g. legacy test callers); in that degenerate case there is no
+   * conversation to attach the turn to and the run proceeds without persistence,
+   * exactly as before.
+   */
+  private async ensurePersistedUserTurn(
+    payload: AiRequestPayload,
+    runId: string,
+    emitStatus: (stage: AiStatusStage, message: string) => void,
+  ): Promise<string | undefined> {
+    let conversationId = payload.conversationId;
+
+    if (!conversationId) {
+      if (!payload.userId) {
+        // No conversation and no owner to create one for: nothing durable can
+        // be written. Proceed without persistence (back-compat).
+        return undefined;
+      }
+      conversationId = await this.conversationService.createConversation(payload.userId);
+      this.logger.log(
+        `Created conversation for no-conversationId chat: conversationId=${conversationId}, runId=${runId}`,
+        'AiService',
+      );
+    }
+
+    emitStatus('save_message', 'Saving user message...');
+    await this.conversationService.saveMessage({
+      conversationId,
+      role: 'user',
+      content: payload.message,
+      runId,
+    });
+
+    return conversationId;
   }
 
   /**
@@ -314,6 +433,7 @@ export class AiService {
   private async executeAgentLoop(
     provider: ReturnType<AiProviderFactory['getProvider']>,
     payload: AiRequestPayload,
+    runId: string,
     emitStatus: (stage: AiStatusStage, message: string) => void,
     onAgentEvent: ((event: AgentEvent) => void) | undefined,
     safeguards: {
@@ -334,15 +454,20 @@ export class AiService {
     const messages: ChatMessage[] = [{ role: 'system', content: this.buildAgentSystemPrompt() }];
 
     if (payload.conversationId) {
+      // The user turn is persisted before the loop starts (see
+      // runChatFlow -> ensurePersistedUserTurn), so the loaded history already
+      // includes it. Slice it off the tail so it is not duplicated when the
+      // current message is pushed below.
       const history = await this.conversationService.loadHistory(payload.conversationId);
-      for (const msg of history) {
+      const withoutCurrentTurn =
+        history.length > 0 &&
+        history[history.length - 1].role === 'user' &&
+        history[history.length - 1].content === payload.message
+          ? history.slice(0, -1)
+          : history;
+      for (const msg of withoutCurrentTurn) {
         messages.push(msg);
       }
-      await this.conversationService.saveMessage({
-        conversationId: payload.conversationId,
-        role: 'user',
-        content: payload.message,
-      });
     }
 
     messages.push({ role: 'user', content: payload.message });
@@ -389,6 +514,14 @@ export class AiService {
       tokenBudget.track({ text: decision.planText });
 
       if (decision.kind === 'final') {
+        // Guard against an empty/whitespace answer. A reasoning model can emit
+        // only a stripped <think> block and no usable FINAL text, which would
+        // otherwise stream nothing and leave the client stuck on a perpetual
+        // "thinking" bubble. Substitute a fixed notice so the run always ends
+        // with visible terminal text.
+        const finalAnswer =
+          decision.answer.trim().length > 0 ? decision.answer : EMPTY_FINAL_ANSWER_FALLBACK;
+
         // Cover the edge case where the answer was empty or arrived before the
         // first forwarded token (e.g. no-marker fallback): ensure the final
         // event/status are still emitted.
@@ -399,12 +532,12 @@ export class AiService {
             budget: this.snapshotBudget(payload, iterationCap, tokenBudget, timeout),
           });
           emitStatus('llm_generating', 'Model is generating a response...');
-          subject.next(decision.answer);
+          subject.next(finalAnswer);
         }
 
         if (payload.conversationId) {
           emitStatus('save_response', 'Saving assistant response...');
-          await this.persistAssistantMessage(payload.conversationId, decision.answer);
+          await this.persistAssistantMessage(payload.conversationId, runId, finalAnswer);
         }
 
         subject.complete();
@@ -544,34 +677,39 @@ export class AiService {
         settle();
       };
 
-      const subscription = provider.chat(messages).subscribe({
-        next: (chunk: string) => {
-          accumulated += chunk;
+      const subscription = provider
+        .chat(messages, {
+          maxTokens: PLANNER_MAX_TOKENS,
+          disableThinking: true,
+        })
+        .subscribe({
+          next: (chunk: string) => {
+            accumulated += chunk;
 
-          if (finalForwardedLen === -1) {
-            const finalIdx = accumulated.indexOf(FINAL_MARKER);
-            if (finalIdx !== -1) {
-              // Begin incremental forwarding of the answer that follows the
-              // marker (left-trimmed once, mirroring parseAgentDecision).
-              finalForwardedLen = 0;
+            if (finalForwardedLen === -1) {
+              const finalIdx = accumulated.indexOf(FINAL_MARKER);
+              if (finalIdx !== -1) {
+                // Begin incremental forwarding of the answer that follows the
+                // marker (left-trimmed once, mirroring parseAgentDecision).
+                finalForwardedLen = 0;
+              }
             }
-          }
 
-          if (finalForwardedLen !== -1) {
-            const answerSoFar = this.extractFinalAnswer(accumulated);
-            if (answerSoFar.length > finalForwardedLen) {
-              onFinalToken(answerSoFar.slice(finalForwardedLen));
-              finalForwardedLen = answerSoFar.length;
+            if (finalForwardedLen !== -1) {
+              const answerSoFar = this.extractFinalAnswer(accumulated);
+              if (answerSoFar.length > finalForwardedLen) {
+                onFinalToken(answerSoFar.slice(finalForwardedLen));
+                finalForwardedLen = answerSoFar.length;
+              }
             }
-          }
-        },
-        error: (err: unknown) => finish(() => reject(err)),
-        complete: () =>
-          finish(() => {
-            const parsed = this.parseAgentDecision(accumulated);
-            resolve({ ...parsed, planText: accumulated });
-          }),
-      });
+          },
+          error: (err: unknown) => finish(() => reject(err)),
+          complete: () =>
+            finish(() => {
+              const parsed = this.parseAgentDecision(accumulated);
+              resolve({ ...parsed, planText: accumulated });
+            }),
+        });
 
       // Bound the in-flight stream by the run's remaining wall-clock budget. The
       // loop's between-iteration `timeout.check()` cannot fire while awaiting a
@@ -634,13 +772,11 @@ export class AiService {
    */
   private async answerTechnicalQuery(
     payload: AiRequestPayload,
+    runId: string,
     emitStatus: (stage: AiStatusStage, message: string) => void,
   ): Promise<Observable<string>> {
     const provider = this.factory.getProvider();
-    const technicalRag = createRagSearchTool(
-      this.searchService,
-      AiService.TECHNICAL_DOCS_PREFIX,
-    );
+    const technicalRag = createRagSearchTool(this.searchService, AiService.TECHNICAL_DOCS_PREFIX);
 
     emitStatus('rag_search', 'Searching technical documentation...');
     const context = await technicalRag.run(payload.message, {
@@ -668,12 +804,14 @@ export class AiService {
       payload.message,
       systemPrompt,
       payload.conversationId,
+      runId,
       emitStatus,
     );
   }
 
   private async answerCapabilityQuery(
     payload: AiRequestPayload,
+    runId: string,
     emitStatus: (stage: AiStatusStage, message: string) => void,
   ): Promise<Observable<string>> {
     const provider = this.factory.getProvider();
@@ -702,6 +840,7 @@ export class AiService {
       payload.message,
       systemPrompt,
       payload.conversationId,
+      runId,
       emitStatus,
     );
   }
@@ -728,6 +867,7 @@ export class AiService {
     userMessage: string,
     systemPrompt: string | undefined,
     conversationId: string | undefined,
+    runId: string,
     emitStatus: (stage: AiStatusStage, message: string) => void,
   ): Promise<Observable<string>> {
     const messages: ChatMessage[] = [];
@@ -752,6 +892,7 @@ export class AiService {
         conversationId,
         role: 'user',
         content: userMessage,
+        runId,
       });
     }
 
@@ -778,7 +919,7 @@ export class AiService {
       },
       complete: () => {
         emitStatus('save_response', 'Saving assistant response...');
-        void this.persistAssistantMessage(conversationId, collected)
+        void this.persistAssistantMessage(conversationId, runId, collected)
           .then(() => subject.complete())
           .catch((err: unknown) => subject.error(err));
       },
@@ -796,8 +937,16 @@ export class AiService {
     return result;
   }
 
+  /**
+   * Persist the assistant turn for a run. `runId` is the stable id minted once
+   * at the AI_REQUEST boundary and threaded through every lane, so the same run
+   * identity reaches this method regardless of which lane produced the answer.
+   * It is forwarded to {@link ConversationService.saveMessage}, which upserts on
+   * `runId`, making the write idempotent under Kafka redelivery (TASK-003).
+   */
   private async persistAssistantMessage(
     conversationId: string | undefined,
+    runId: string,
     content: string,
   ): Promise<void> {
     if (!conversationId) return;
@@ -805,9 +954,10 @@ export class AiService {
       conversationId,
       role: 'assistant',
       content,
+      runId,
     });
     this.logger.log(
-      `Saved assistant message: conversationId=${conversationId}, len=${content.length}`,
+      `Saved assistant message: conversationId=${conversationId}, runId=${runId}, len=${content.length}`,
       'AiService',
     );
   }
@@ -835,6 +985,7 @@ export class AiService {
     return {
       message,
       conversationId: typeof r.conversationId === 'string' ? r.conversationId : undefined,
+      userId: typeof r.userId === 'string' ? r.userId : undefined,
       maxIterations: this.clampPositiveInt(r.maxIterations, DEFAULT_MAX_ITERATIONS),
       tokenBudget: this.clampPositiveInt(r.tokenBudget, DEFAULT_TOKEN_BUDGET),
       timeoutMs: this.clampPositiveInt(r.timeoutMs, DEFAULT_TIMEOUT_MS),
