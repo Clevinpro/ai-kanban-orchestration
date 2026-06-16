@@ -10,10 +10,13 @@ import { Module, OnModuleInit } from '@nestjs/common';
 import { ConversationService } from '../conversation/conversation.service';
 import { EmbeddingsModule } from '../embeddings/embeddings.module';
 import { SearchModule } from '../search/search.module';
+import { SearchService } from '../search/search.service';
 import { AiProvidersModule } from './ai-providers.module';
 import { AiService } from './ai.service';
 import { CapabilityDetectorService } from './capability-detector.service';
 import { isSafeguardError } from './safeguards/errors';
+import { ToolRegistry } from './tools/tool-registry';
+import { createRagSearchTool } from './tools/rag-search.tool';
 
 interface AiRequestPayload {
   userId: string;
@@ -39,8 +42,26 @@ interface AiCancelPayload {
 
 @Module({
   imports: [EmbeddingsModule, SearchModule, AiProvidersModule],
-  providers: [AiService, CapabilityDetectorService, ConversationService],
-  exports: [AiService, AiProvidersModule],
+  providers: [
+    AiService,
+    CapabilityDetectorService,
+    ConversationService,
+    {
+      // Singleton ToolRegistry, populated at construction. The factory runs
+      // exactly once for this provider, so the RAG tool is registered exactly
+      // once — no duplicate-registration risk. SearchService is injected from
+      // the imported SearchModule so the tool wraps the real search pipeline.
+      provide: ToolRegistry,
+      useFactory: (searchService: SearchService): ToolRegistry => {
+        const registry = new ToolRegistry();
+        registry.register(createRagSearchTool(searchService));
+        return registry;
+      },
+      inject: [SearchService],
+    },
+  ],
+  // ToolRegistry is exported so AiService (wired in TASK-005) can inject it.
+  exports: [AiService, AiProvidersModule, ToolRegistry],
 })
 export class AiModule implements OnModuleInit {
   constructor(

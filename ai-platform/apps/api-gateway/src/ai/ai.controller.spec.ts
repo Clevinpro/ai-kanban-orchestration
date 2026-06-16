@@ -1,6 +1,6 @@
 import { KAFKA_TOPICS } from '@ai-platform/shared';
 import { AiController } from './ai.controller';
-import type { ChatRequestDto } from './ai.dto';
+import type { CancelChatRequestDto, ChatRequestDto } from './ai.dto';
 
 describe('AiController.chat (AI_REQUEST forwarding)', () => {
   let controller: AiController;
@@ -71,6 +71,18 @@ describe('AiController.chat (AI_REQUEST forwarding)', () => {
     });
   });
 
+  it('forwards limit fields even when no mode is provided', async () => {
+    await controller.chat(req, buildDto({ maxIterations: 3, tokenBudget: 800, timeoutMs: 15000 }));
+
+    const value = lastPublishedValue();
+    expect(value).not.toHaveProperty('mode');
+    expect(value).toMatchObject({
+      maxIterations: 3,
+      tokenBudget: 800,
+      timeoutMs: 15000,
+    });
+  });
+
   it('omits individual limit fields that are not provided', async () => {
     await controller.chat(req, buildDto({ mode: 'chat', tokenBudget: 500 }));
 
@@ -78,5 +90,56 @@ describe('AiController.chat (AI_REQUEST forwarding)', () => {
     expect(value).toHaveProperty('tokenBudget', 500);
     expect(value).not.toHaveProperty('maxIterations');
     expect(value).not.toHaveProperty('timeoutMs');
+  });
+});
+
+describe('AiController.cancel (AI_CANCEL forwarding)', () => {
+  let controller: AiController;
+  let publish: jest.Mock;
+
+  const req = { user: { id: 'user-1' } } as never;
+
+  const buildDto = (overrides: Partial<CancelChatRequestDto> = {}): CancelChatRequestDto => ({
+    conversationId: 'conv-1',
+    ...overrides,
+  });
+
+  beforeEach(() => {
+    publish = jest.fn().mockResolvedValue(undefined);
+    const kafkaProducer = { publish } as never;
+    const kafkaConsumer = {} as never;
+    const logger = { log: jest.fn() } as never;
+    const prisma = {} as never;
+
+    controller = new AiController(kafkaProducer, kafkaConsumer, logger, prisma);
+  });
+
+  it('publishes AI_CANCEL keyed by conversationId with { conversationId, userId }', async () => {
+    const result = await controller.cancel(req, buildDto());
+
+    expect(publish).toHaveBeenCalledWith(KAFKA_TOPICS.AI_CANCEL, {
+      topic: KAFKA_TOPICS.AI_CANCEL,
+      key: 'conv-1',
+      value: {
+        conversationId: 'conv-1',
+        userId: 'user-1',
+      },
+    });
+    expect(result).toEqual({ status: 'cancelling' });
+  });
+
+  it('uses the authed userId from req.user.sub when id is absent', async () => {
+    const subReq = { user: { sub: 'user-2' } } as never;
+
+    await controller.cancel(subReq, buildDto({ conversationId: 'conv-2' }));
+
+    expect(publish).toHaveBeenCalledWith(KAFKA_TOPICS.AI_CANCEL, {
+      topic: KAFKA_TOPICS.AI_CANCEL,
+      key: 'conv-2',
+      value: {
+        conversationId: 'conv-2',
+        userId: 'user-2',
+      },
+    });
   });
 });

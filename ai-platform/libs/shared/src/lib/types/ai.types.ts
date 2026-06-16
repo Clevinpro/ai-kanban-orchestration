@@ -34,6 +34,7 @@ export interface AiResponsePayload {
 export interface AgentEvent {
   iteration: number;
   status: 'planning' | 'tool_call' | 'tool_result' | 'final';
+  // Dynamic tool name (e.g. 'similaritySearch' or any future tool). Not a narrowed literal.
   tool?: string;
   input?: string;
   budget?: AgentBudget;
@@ -53,11 +54,16 @@ export interface AgentBudget {
 }
 
 /**
- * Configuration for a single AI run. `mode: 'chat'` preserves the existing
- * chat flow; `mode: 'agent'` enables the agent loop with optional limits.
+ * Configuration for a single AI run. The unified tool-use flow no longer
+ * distinguishes chat from agent runs; the loop runs the same way regardless.
+ *
+ * @deprecated `mode` is accepted-but-ignored by the unified flow. It is kept
+ * optional only so the already-deployed gateway DTO and any in-flight clients
+ * do not break. Do not branch on it. The three limit fields remain optional.
  */
 export interface AgentRunConfig {
-  mode: 'chat' | 'agent';
+  /** @deprecated Accepted but ignored by the unified tool-use flow. */
+  mode?: 'chat' | 'agent';
   maxIterations?: number;
   tokenBudget?: number;
   timeoutMs?: number;

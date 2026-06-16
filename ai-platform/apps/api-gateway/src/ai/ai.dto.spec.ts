@@ -22,6 +22,17 @@ describe('ChatRequestDto validation', () => {
     ).toHaveLength(0);
   });
 
+  it('accepts positive integer limits without a mode', () => {
+    expect(
+      validate({
+        message: 'hi',
+        maxIterations: 5,
+        tokenBudget: 1000,
+        timeoutMs: 30000,
+      }),
+    ).toHaveLength(0);
+  });
+
   it('rejects an unknown mode', () => {
     const errors = validate({ message: 'hi', mode: 'turbo' });
     expect(errors.map((e) => e.property)).toContain('mode');

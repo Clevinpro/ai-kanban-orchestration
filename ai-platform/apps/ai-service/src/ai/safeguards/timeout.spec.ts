@@ -53,4 +53,24 @@ describe('Timeout', () => {
 
     expect(timeout.elapsedMs).toBe(1234);
   });
+
+  it('exposes remaining time via the remainingMs getter', () => {
+    const clock = fakeClock(2000);
+    const timeout = new Timeout(5000, clock.now);
+
+    expect(timeout.remainingMs).toBe(5000);
+
+    clock.set(2000 + 1500);
+
+    expect(timeout.remainingMs).toBe(3500);
+  });
+
+  it('clamps remainingMs at zero once the budget is spent', () => {
+    const clock = fakeClock(0);
+    const timeout = new Timeout(100, clock.now);
+
+    clock.set(250);
+
+    expect(timeout.remainingMs).toBe(0);
+  });
 });

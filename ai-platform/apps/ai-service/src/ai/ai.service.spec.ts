@@ -2,6 +2,8 @@ import type { AgentEvent } from '@ai-platform/shared';
 import { Observable, of } from 'rxjs';
 import { AiService } from './ai.service';
 import { IterationCapExceededError } from './safeguards/errors';
+import { ToolRegistry } from './tools/tool-registry';
+import { createRagSearchTool, RAG_SEARCH_TOOL_NAME } from './tools/rag-search.tool';
 
 /**
  * Emit the given chunks asynchronously (one per microtask), mirroring how a real
@@ -49,6 +51,7 @@ describe('AiService agent loop', () => {
     isCapabilityQuery: jest.Mock;
     loadHistory: jest.Mock;
     saveMessage: jest.Mock;
+    registry: ToolRegistry;
   }
 
   /**
@@ -72,12 +75,18 @@ describe('AiService agent loop', () => {
     const logger = { log: jest.fn(), warn: jest.fn(), error: jest.fn() };
     const capabilityDetector = { isCapabilityQuery };
 
+    // Registry wired exactly like the module: the RAG tool is the only tool
+    // registered, so the loop dispatches it by name through the registry.
+    const registry = new ToolRegistry();
+    registry.register(createRagSearchTool(searchService as never));
+
     const service = new AiService(
       searchService as never,
       factory as never,
       conversationService as never,
       logger as never,
       capabilityDetector as never,
+      registry,
     );
 
     return {
@@ -88,6 +97,7 @@ describe('AiService agent loop', () => {
       isCapabilityQuery,
       loadHistory,
       saveMessage,
+      registry,
     };
   }
 
@@ -115,9 +125,9 @@ describe('AiService agent loop', () => {
   it('happy path: plans, calls similaritySearch, feeds the observation back, then streams the final answer', async () => {
     const mocks = buildService();
 
-    // Turn 1: search the KB. Turn 2: final answer streamed token-by-token.
+    // Turn 1: dispatch the RAG tool. Turn 2: final answer streamed token-by-token.
     mocks.chat
-      .mockReturnValueOnce(of('SEARCH: what is the policy'))
+      .mockReturnValueOnce(of(`TOOL ${RAG_SEARCH_TOOL_NAME}: what is the policy`))
       .mockReturnValueOnce(of('FINAL: ', 'the ', 'answer'));
 
     const { text, events, error } = await collectRun(mocks.service, {
@@ -147,13 +157,78 @@ describe('AiService agent loop', () => {
     expect(statuses).toContain('tool_call');
     expect(statuses).toContain('tool_result');
     expect(statuses).toContain('final');
+
+    // The tool_call / tool_result events both carry the dynamic tool name.
+    const toolCall = events.find((e) => e.status === 'tool_call');
+    expect(toolCall?.tool).toBe(RAG_SEARCH_TOOL_NAME);
+    expect(toolCall?.input).toBe('what is the policy');
+    const toolResult = events.find((e) => e.status === 'tool_result');
+    expect(toolResult?.tool).toBe(RAG_SEARCH_TOOL_NAME);
+    expect(toolResult?.input).toBe('what is the policy');
+  });
+
+  it('dispatches an arbitrary registered tool by name with no loop-body edits', async () => {
+    const mocks = buildService();
+
+    // Register a second, fake tool. The loop must dispatch it purely by name.
+    const fakeRun = jest.fn().mockResolvedValue('fake observation');
+    mocks.registry.register({
+      name: 'fakeTool',
+      description: 'A fake tool for testing dynamic dispatch.',
+      run: fakeRun,
+    });
+
+    mocks.chat
+      .mockReturnValueOnce(of('TOOL fakeTool: do the thing'))
+      .mockReturnValueOnce(of('FINAL: done'));
+
+    const { text, events, error } = await collectRun(mocks.service, {
+      message: 'use the fake tool',
+      mode: 'agent',
+    });
+
+    expect(error).toBeUndefined();
+    expect(text).toBe('done');
+    expect(fakeRun).toHaveBeenCalledWith('do the thing', expect.any(Object));
+    // The RAG tool was never touched; only the fake tool ran.
+    expect(mocks.similaritySearch).not.toHaveBeenCalled();
+
+    const toolCall = events.find((e) => e.status === 'tool_call');
+    expect(toolCall?.tool).toBe('fakeTool');
+  });
+
+  it('unknown tool name is fed back as an observation so the loop self-corrects', async () => {
+    const mocks = buildService();
+
+    // Turn 1: an unknown tool. Turn 2: a valid final answer once the error
+    // observation is fed back. The run must not crash.
+    mocks.chat
+      .mockReturnValueOnce(of('TOOL nopeTool: anything'))
+      .mockReturnValueOnce(of('FINAL: recovered'));
+
+    const { text, error } = await collectRun(mocks.service, {
+      message: 'trigger unknown tool',
+      mode: 'agent',
+    });
+
+    expect(error).toBeUndefined();
+    expect(text).toBe('recovered');
+
+    // The error observation was fed back into the second planning turn.
+    const secondCallMessages = mocks.chat.mock.calls[1][0] as Array<{
+      role: string;
+      content: string;
+    }>;
+    expect(secondCallMessages.some((m) => m.content.includes('unknown tool "nopeTool"'))).toBe(
+      true,
+    );
   });
 
   it('budget-exceeded: a tiny iteration cap aborts the run with the typed safeguard reason and no unbounded looping', async () => {
     const mocks = buildService();
 
     // Endless tool calls: without the cap this loops forever.
-    mocks.chat.mockReturnValue(of('SEARCH: keep digging'));
+    mocks.chat.mockReturnValue(of(`TOOL ${RAG_SEARCH_TOOL_NAME}: keep digging`));
 
     const { error } = await collectRun(mocks.service, {
       message: 'never resolves',
@@ -178,7 +253,7 @@ describe('AiService agent loop', () => {
     mocks.chat.mockImplementation(() => {
       const killSwitch = mocks.service.getKillSwitch(conversationId);
       killSwitch?.kill();
-      return of('SEARCH: anything');
+      return of(`TOOL ${RAG_SEARCH_TOOL_NAME}: anything`);
     });
 
     const { error } = await collectRun(mocks.service, {
@@ -217,19 +292,78 @@ describe('AiService agent loop', () => {
     });
   });
 
-  it('default chat-mode path stays green and emits no agent events (AC-07 regression guard)', async () => {
+  it('aborts the in-flight stream and rejects with timeout when the provider stalls past the run budget', async () => {
     const mocks = buildService();
-    mocks.chat.mockReturnValue(asyncStream('plain ', 'chat ', 'reply'));
+    let unsubscribed = false;
+    // A stream that emits nothing and never completes, mirroring an LLM that
+    // ingested the prompt but stalled before emitting a token. Without the
+    // wall-clock bound on the stream the loop would await this forever.
+    mocks.chat.mockReturnValue(
+      new Observable<string>(() => () => {
+        unsubscribed = true;
+      }),
+    );
+
+    const { text, error } = await collectRun(mocks.service, {
+      message: 'hello',
+      timeoutMs: 20,
+    });
+
+    expect(text).toBe('');
+    expect((error as { reason?: string }).reason).toBe('timeout');
+    expect((error as Error).name).toBe('TimeoutExceededError');
+    // The stalled provider subscription is torn down rather than left hanging.
+    expect(unsubscribed).toBe(true);
+  });
+
+  it('a plain question with no mode and no limits answers directly within defaults (behavior parity)', async () => {
+    const mocks = buildService();
+    // The model answers directly with a FINAL on the first turn (zero tool
+    // calls), streamed token-by-token.
+    mocks.chat.mockReturnValue(asyncStream('FINAL: ', 'plain ', 'chat ', 'reply'));
 
     const { text, events, error } = await collectRun(mocks.service, {
       message: 'hello',
-      // No mode -> defaults to chat.
+      // No mode and no limits -> unified loop runs with default safeguards.
     });
 
     expect(error).toBeUndefined();
     expect(text).toBe('plain chat reply');
-    expect(events).toHaveLength(0);
-    // Chat mode consults the capability detector; agent mode never does.
+
+    // The unified flow still consults the capability detector as a pre-step.
     expect(mocks.isCapabilityQuery).toHaveBeenCalled();
+
+    // The model answered directly: exactly one planning turn, no tool dispatch.
+    expect(mocks.chat).toHaveBeenCalledTimes(1);
+    expect(mocks.similaritySearch).not.toHaveBeenCalled();
+    expect(events.map((e) => e.status)).not.toContain('tool_call');
+
+    // Defaults are applied to the budget snapshot when limits are omitted.
+    const planning = events.find((e) => e.status === 'planning');
+    expect(planning?.budget).toEqual({
+      iteration: 1,
+      tokensUsed: expect.any(Number),
+      elapsedMs: expect.any(Number),
+      maxIterations: 10,
+      tokenBudget: 100_000,
+      timeoutMs: 120_000,
+    });
+  });
+
+  it('a capability query short-circuits to the capability answer and bypasses the loop', async () => {
+    const mocks = buildService();
+    mocks.isCapabilityQuery.mockResolvedValueOnce(true);
+    mocks.chat.mockReturnValue(of('capability answer'));
+
+    const { events, error } = await collectRun(mocks.service, {
+      message: 'what can you do?',
+    });
+
+    expect(error).toBeUndefined();
+    // The capability pre-step answers directly, so no agent loop events fire.
+    expect(events).toHaveLength(0);
+    expect(mocks.isCapabilityQuery).toHaveBeenCalled();
+    // It runs a scoped similarity search, not the tool-use loop.
+    expect(mocks.similaritySearch).toHaveBeenCalled();
   });
 });

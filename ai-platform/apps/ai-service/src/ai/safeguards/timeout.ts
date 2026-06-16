@@ -36,6 +36,15 @@ export class Timeout {
   }
 
   /**
+   * Remaining wall-clock time before the run's timeout trips, in milliseconds.
+   * Clamped at zero once the budget is spent. Used to bound an in-flight
+   * provider stream so a stalled LLM cannot outlive the run timeout.
+   */
+  get remainingMs(): number {
+    return Math.max(0, this.timeoutMs - this.elapsedMs);
+  }
+
+  /**
    * Assert that the run has not yet exceeded its wall-clock budget.
    *
    * @throws {TimeoutExceededError} when `now - start >= timeoutMs`.

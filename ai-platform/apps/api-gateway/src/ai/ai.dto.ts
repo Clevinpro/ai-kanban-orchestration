@@ -12,12 +12,13 @@ export class ChatRequestDto {
   @IsString()
   conversationId?: string;
 
-  // Run mode. Omitted preserves today's chat behavior; 'agent' enables the agent loop.
+  // Run mode. Accepted-but-ignored for back-compat; it does NOT gate the limits below.
   @IsOptional()
   @IsIn(['chat', 'agent'])
   mode?: AgentRunConfig['mode'];
 
-  // Optional agent-run limits. Positive integers only.
+  // Optional safeguard limits applied on the ordinary chat request, independent of `mode`.
+  // Positive integers only.
   @IsOptional()
   @IsInt()
   @IsPositive()
@@ -32,4 +33,13 @@ export class ChatRequestDto {
   @IsInt()
   @IsPositive()
   timeoutMs?: number;
+}
+
+export class CancelChatRequestDto {
+  // Conversation whose active run should be cancelled. Required and non-empty;
+  // missing/blank values are rejected with a 400 by the global validation pipe.
+  @IsString()
+  @IsNotEmpty()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  conversationId!: string;
 }

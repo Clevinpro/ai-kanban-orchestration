@@ -17,28 +17,38 @@ import { IterationCap } from './safeguards/iteration-cap';
 import { KillSwitch } from './safeguards/kill-switch';
 import { Timeout } from './safeguards/timeout';
 import { TokenBudget } from './safeguards/token-budget';
+import { ToolRegistry } from './tools/tool-registry';
+import { TimeoutExceededError } from './safeguards/errors';
 
-/** Agent-run defaults, reused by the agent loop (TASK-008). */
+/**
+ * Default safeguard limits for the unified chat flow. Applied whenever the
+ * request omits the corresponding limit so plain questions run within sensible
+ * bounds and behave exactly as before the tool-use loop unification.
+ */
 const DEFAULT_MAX_ITERATIONS = 10;
 const DEFAULT_TOKEN_BUDGET = 100_000;
 const DEFAULT_TIMEOUT_MS = 120_000;
 
 /**
  * Sentinel markers the planner must use so the loop can deterministically
- * decide between issuing another tool call and emitting the final answer.
+ * decide between dispatching a registered tool and emitting the final answer.
  *
- * - `SEARCH: <query>` — run the similarity-search tool with `<query>`.
+ * - `TOOL <name>: <input>` — dispatch the registered tool `<name>` with `<input>`.
  * - `FINAL: <answer>` — terminate the loop; `<answer>` is streamed to the user.
  */
-const SEARCH_MARKER = 'SEARCH:';
+const TOOL_MARKER = 'TOOL';
 const FINAL_MARKER = 'FINAL:';
 
-type AiRequestMode = 'chat' | 'agent';
+/**
+ * Matches a `TOOL <name>: <input>` line, capturing the tool name and its input.
+ * The name is a contiguous run of non-whitespace/non-colon characters; the input
+ * is everything after the first colon. Anchored to the marker prefix only.
+ */
+const TOOL_DECISION_PATTERN = new RegExp(`${TOOL_MARKER}\\s+([^\\s:]+)\\s*:\\s*([\\s\\S]*)`);
 
 type AiRequestPayload = {
   message: string;
   conversationId?: string;
-  mode: AiRequestMode;
   maxIterations: number;
   tokenBudget: number;
   timeoutMs: number;
@@ -56,10 +66,18 @@ type KillSwitchEntry = {
 };
 
 /**
+ * A parsed planner decision: either dispatch a named tool with an input, or
+ * emit the final answer to the user.
+ */
+type ParsedDecision =
+  | { kind: 'tool'; tool: string; input: string }
+  | { kind: 'final'; answer: string };
+
+/**
  * A parsed planner decision plus the full planning text it was derived from.
  * `planText` is retained for token accounting and transcript bookkeeping.
  */
-type AgentDecision = ({ kind: 'final'; answer: string } | { kind: 'search'; query: string }) & {
+type AgentDecision = ParsedDecision & {
   planText: string;
 };
 
@@ -84,6 +102,7 @@ export class AiService {
     private readonly conversationService: ConversationService,
     private readonly logger: LoggerService,
     private readonly capabilityDetector: CapabilityDetectorService,
+    private readonly toolRegistry: ToolRegistry,
   ) {}
 
   processMessage(request: unknown, options?: ProcessMessageOptions): Observable<string> {
@@ -93,14 +112,14 @@ export class AiService {
 
     emitStatus('init', 'Preparing request...');
     this.logger.log(
-      `Process message: conversationId=${payload.conversationId}, length=${payload.message.length}, mode=${payload.mode}`,
+      `Process message: conversationId=${payload.conversationId}, length=${payload.message.length}`,
       'AiService',
     );
 
-    if (payload.mode === 'agent') {
-      return this.runAgentFlow(payload, emitStatus, options?.onAgentEvent);
-    }
-
+    // Unified chat path: there is no chat-vs-agent mode duality. The capability
+    // detector stays as an optional pre-step that short-circuits to the
+    // capability answer; every other request runs the single bounded tool-use
+    // loop (`runChatFlow`), which may answer directly or call the RAG tool.
     return from(this.capabilityDetector.isCapabilityQuery(payload.message)).pipe(
       switchMap((isCapability) => {
         if (isCapability) {
@@ -108,7 +127,7 @@ export class AiService {
             switchMap((obs) => obs),
           );
         }
-        return this.runRagFlow(payload, emitStatus);
+        return this.runChatFlow(payload, emitStatus, options?.onAgentEvent);
       }),
     );
   }
@@ -166,16 +185,19 @@ export class AiService {
   }
 
   /**
-   * Agent-mode entry point. Runs a bounded reason→act loop: the provider plans,
-   * optionally calls the similarity-search tool, observations are fed back, and
-   * the loop repeats until the model emits a final answer or a safeguard fires.
+   * Unified chat entry point. Runs a bounded reason→act loop: the provider
+   * plans, optionally calls a registered tool (e.g. the RAG similarity search),
+   * observations are fed back, and the loop repeats until the model emits a
+   * final answer or a safeguard fires. There is no separate agent mode — every
+   * non-capability chat request flows through this loop, and the model is free
+   * to answer directly (zero tool calls) or call a tool.
    *
-   * Final-answer tokens stream as the returned Observable (mirroring
-   * `runRagFlow`); typed `AgentEvent`s stream via `onAgentEvent`. All four
-   * safeguards are constructed per run and checked outside the loop body; any
-   * safeguard breach aborts the run and surfaces as the Observable's `error`.
+   * Final-answer tokens stream as the returned Observable; typed `AgentEvent`s
+   * stream via `onAgentEvent`. All four safeguards are constructed per run and
+   * checked outside the loop body; any safeguard breach aborts the run and
+   * surfaces as the Observable's `error`.
    */
-  private runAgentFlow(
+  private runChatFlow(
     payload: AiRequestPayload,
     emitStatus: (stage: AiStatusStage, message: string) => void,
     onAgentEvent?: (event: AgentEvent) => void,
@@ -276,21 +298,26 @@ export class AiService {
       // prefix; once a FINAL answer is recognized its tokens are forwarded
       // incrementally to the subject so the final answer streams (AC6) rather
       // than arriving as a single chunk. The full text is also accumulated to
-      // account against the token budget and to parse a SEARCH query.
+      // account against the token budget and to parse a tool-dispatch line.
       let finalStreamingStarted = false;
-      const decision = await this.streamAgentDecision(provider, messages, (answerToken) => {
-        if (!finalStreamingStarted) {
-          finalStreamingStarted = true;
-          onAgentEvent?.({
-            iteration,
-            status: 'final',
-            budget: this.snapshotBudget(payload, iterationCap, tokenBudget, timeout),
-          });
-          emitStatus('llm_generating', 'Model is generating a response...');
-        }
-        // Forward each final-answer token as it arrives.
-        subject.next(answerToken);
-      });
+      const decision = await this.streamAgentDecision(
+        provider,
+        messages,
+        timeout,
+        (answerToken) => {
+          if (!finalStreamingStarted) {
+            finalStreamingStarted = true;
+            onAgentEvent?.({
+              iteration,
+              status: 'final',
+              budget: this.snapshotBudget(payload, iterationCap, tokenBudget, timeout),
+            });
+            emitStatus('llm_generating', 'Model is generating a response...');
+          }
+          // Forward each final-answer token as it arrives.
+          subject.next(answerToken);
+        },
+      );
 
       tokenBudget.track({ text: decision.planText });
 
@@ -317,25 +344,39 @@ export class AiService {
         return;
       }
 
-      // Tool branch: the only tool is similaritySearch.
+      // Tool branch: resolve and dispatch the planned tool through the registry.
+      // An unknown tool name is fed back as an error observation so the planner
+      // self-corrects on the next turn rather than crashing the run.
+      const tool = this.toolRegistry.get(decision.tool);
+
       onAgentEvent?.({
         iteration,
         status: 'tool_call',
-        tool: 'similaritySearch',
-        input: decision.query,
+        tool: decision.tool,
+        input: decision.input,
         budget: this.snapshotBudget(payload, iterationCap, tokenBudget, timeout),
       });
       emitStatus('rag_search', 'Searching relevant context...');
 
-      const chunks = await this.searchService.similaritySearch(decision.query);
-      const observation = this.searchService.formatContext(chunks);
+      let observation: string;
+      if (!tool) {
+        observation =
+          `Error: unknown tool "${decision.tool}". Available tools:\n` +
+          this.toolRegistry.describe();
+        this.logger.warn(
+          `Planner requested unknown tool "${decision.tool}"; feeding error back as observation`,
+          'AiService',
+        );
+      } else {
+        observation = await tool.run(decision.input, { conversationId: payload.conversationId });
+      }
       tokenBudget.track({ text: observation });
 
       onAgentEvent?.({
         iteration,
         status: 'tool_result',
-        tool: 'similaritySearch',
-        input: decision.query,
+        tool: decision.tool,
+        input: decision.input,
         budget: this.snapshotBudget(payload, iterationCap, tokenBudget, timeout),
       });
 
@@ -344,36 +385,38 @@ export class AiService {
       messages.push({ role: 'assistant', content: decision.planText });
       messages.push({
         role: 'user',
-        content: `Observation from ${SEARCH_MARKER} "${decision.query}":\n${observation}`,
+        content: `Observation from ${TOOL_MARKER} ${decision.tool}: "${decision.input}":\n${observation}`,
       });
     }
   }
 
   /**
    * System prompt for the agent planner. Constrains the model to a deterministic
-   * decision protocol the loop can parse: one tool (`SEARCH:`) or a final
-   * answer (`FINAL:`).
+   * decision protocol the loop can parse: dispatch one of the registered tools
+   * (`TOOL <name>: <input>`) or emit a final answer (`FINAL: <answer>`). The
+   * available tools are enumerated from the {@link ToolRegistry} so registered
+   * tools are self-describing and no tool name is hardcoded here.
    */
   private buildAgentSystemPrompt(): string {
     return [
       'You are an autonomous research agent answering questions from a knowledge base.',
-      'You may use exactly one tool: a similarity search over the knowledge base.',
+      'You may call the following tools:',
+      this.toolRegistry.describe(),
       'On every turn respond with exactly ONE line, choosing one of:',
-      `- "${SEARCH_MARKER} <query>" to search the knowledge base for <query>.`,
+      `- "${TOOL_MARKER} <name>: <input>" to call the tool <name> with <input>.`,
       `- "${FINAL_MARKER} <answer>" to give your final answer to the user.`,
-      'Use SEARCH to gather evidence before answering. When you have enough',
-      'evidence, respond with FINAL and the complete answer for the user.',
+      'Use a tool to gather evidence before answering. When you have enough',
+      `evidence, respond with ${FINAL_MARKER} and the complete answer for the user.`,
     ].join('\n');
   }
 
   /**
    * Parse a planning response into a structured decision. Prefers an explicit
-   * `FINAL:` marker; falls back to `SEARCH:`. When no marker is present the text
-   * is treated as the final answer so the loop always terminates cleanly.
+   * `FINAL:` marker; falls back to a `TOOL <name>: <input>` dispatch. When no
+   * marker is present, or the tool dispatch is malformed, the text is treated as
+   * the final answer so the loop always terminates cleanly.
    */
-  private parseAgentDecision(
-    planText: string,
-  ): { kind: 'final'; answer: string } | { kind: 'search'; query: string } {
+  private parseAgentDecision(planText: string): ParsedDecision {
     const text = planText.trim();
 
     const finalIdx = text.indexOf(FINAL_MARKER);
@@ -381,11 +424,12 @@ export class AiService {
       return { kind: 'final', answer: text.slice(finalIdx + FINAL_MARKER.length).trim() };
     }
 
-    const searchIdx = text.indexOf(SEARCH_MARKER);
-    if (searchIdx !== -1) {
-      const query = text.slice(searchIdx + SEARCH_MARKER.length).trim();
-      if (query) {
-        return { kind: 'search', query };
+    const match = TOOL_DECISION_PATTERN.exec(text);
+    if (match) {
+      const tool = match[1].trim();
+      const input = match[2].trim();
+      if (tool && input) {
+        return { kind: 'tool', tool, input };
       }
     }
 
@@ -399,8 +443,8 @@ export class AiService {
    * While streaming, marker detection runs on the accumulated prefix. As soon as
    * a `FINAL:` answer is recognized, each subsequent answer token is forwarded
    * via `onFinalToken` so the final answer streams to the user incrementally
-   * (AC6) instead of arriving as one chunk. `SEARCH:` decisions are not
-   * forwarded (the query is not user-facing). The full text is returned as
+   * (AC6) instead of arriving as one chunk. `TOOL <name>:` decisions are not
+   * forwarded (the tool input is not user-facing). The full text is returned as
    * `planText` for token accounting and transcript bookkeeping; the decision is
    * reconciled with {@link parseAgentDecision} on completion so the deterministic
    * sentinel semantics stay identical to the non-streaming parse.
@@ -408,6 +452,7 @@ export class AiService {
   private streamAgentDecision(
     provider: ReturnType<AiProviderFactory['getProvider']>,
     messages: ChatMessage[],
+    timeout: Timeout,
     onFinalToken: (token: string) => void,
   ): Promise<AgentDecision> {
     return new Promise<AgentDecision>((resolve, reject) => {
@@ -416,6 +461,21 @@ export class AiService {
       // characters of the post-marker answer have already been forwarded so each
       // chunk only emits its new suffix.
       let finalForwardedLen = -1;
+      // Guards against double-settle when the stall timer and a late
+      // complete/error race each other.
+      let settled = false;
+      let stallTimer: ReturnType<typeof setTimeout> | undefined;
+
+      const finish = (settle: () => void) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        if (stallTimer) {
+          clearTimeout(stallTimer);
+        }
+        settle();
+      };
 
       const subscription = provider.chat(messages).subscribe({
         next: (chunk: string) => {
@@ -438,17 +498,32 @@ export class AiService {
             }
           }
         },
-        error: (err: unknown) => reject(err),
-        complete: () => {
-          const parsed = this.parseAgentDecision(accumulated);
-          resolve({ ...parsed, planText: accumulated });
-        },
+        error: (err: unknown) => finish(() => reject(err)),
+        complete: () =>
+          finish(() => {
+            const parsed = this.parseAgentDecision(accumulated);
+            resolve({ ...parsed, planText: accumulated });
+          }),
       });
 
-      // No teardown wiring is needed: the loop awaits this promise and the
-      // provider stream completes on its own. Keep a reference so linters do not
-      // flag the unused subscription.
-      void subscription;
+      // Bound the in-flight stream by the run's remaining wall-clock budget. The
+      // loop's between-iteration `timeout.check()` cannot fire while awaiting a
+      // stalled provider stream (e.g. an LLM that ingested the prompt but never
+      // emits a token), so without this an awaited stream could hang well past
+      // the configured timeout. On expiry the subscription is torn down and the
+      // run rejects with the standard timeout error.
+      if (!settled) {
+        stallTimer = setTimeout(() => {
+          finish(() => {
+            subscription.unsubscribe();
+            reject(
+              new TimeoutExceededError(
+                'Timeout exceeded: provider stream did not complete within the run budget',
+              ),
+            );
+          });
+        }, timeout.remainingMs);
+      }
     });
   }
 
@@ -483,54 +558,6 @@ export class AiService {
       tokenBudget: payload.tokenBudget,
       timeoutMs: payload.timeoutMs,
     };
-  }
-
-  private runRagFlow(
-    payload: AiRequestPayload,
-    emitStatus: (stage: AiStatusStage, message: string) => void,
-  ): Observable<string> {
-    const provider = this.factory.getProvider();
-    void provider
-      .getActiveModel?.()
-      .then((model) => {
-        this.logger.log(
-          `Selected provider=${provider.constructor.name}, model=${model}`,
-          'AiService',
-        );
-      })
-      .catch((err: unknown) => {
-        this.logger.warn(
-          `Cannot resolve active model: ${err instanceof Error ? err.message : String(err)}`,
-          'AiService',
-        );
-      });
-
-    emitStatus('rag_search', 'Searching relevant context...');
-    return from(this.searchService.similaritySearch(payload.message)).pipe(
-      tap((chunks) => {
-        this.logger.log(`Context chunks: count=${chunks.length}`, 'AiService');
-        emitStatus(
-          'rag_found',
-          chunks.length > 0 ? `Found ${chunks.length} context chunks` : 'No relevant context found',
-        );
-      }),
-      switchMap((chunks) =>
-        from(this.loadSystemPrompt(chunks)).pipe(
-          tap(() => emitStatus('prompt_build', 'Preparing prompt...')),
-          switchMap((systemPrompt) =>
-            from(
-              this.buildAndStream(
-                provider,
-                payload.message,
-                systemPrompt,
-                payload.conversationId,
-                emitStatus,
-              ),
-            ).pipe(switchMap((obs) => obs)),
-          ),
-        ),
-      ),
-    );
   }
 
   private async answerCapabilityQuery(
@@ -689,12 +716,13 @@ export class AiService {
       throw new BadRequestException('Request message must be a non-empty string.');
     }
 
-    const mode: AiRequestMode = r.mode === 'agent' ? 'agent' : 'chat';
+    // `mode` is accepted but ignored: the unified tool-use flow runs the same
+    // way regardless of an omitted / 'chat' / 'agent' value. We do not read or
+    // throw on it — kept only for back-compat with already-deployed clients.
 
     return {
       message,
       conversationId: typeof r.conversationId === 'string' ? r.conversationId : undefined,
-      mode,
       maxIterations: this.clampPositiveInt(r.maxIterations, DEFAULT_MAX_ITERATIONS),
       tokenBudget: this.clampPositiveInt(r.tokenBudget, DEFAULT_TOKEN_BUDGET),
       timeoutMs: this.clampPositiveInt(r.timeoutMs, DEFAULT_TIMEOUT_MS),
