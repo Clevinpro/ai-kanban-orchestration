@@ -52,6 +52,11 @@ export class ConversationService {
     conversationId: string;
     role: MessageRole;
     content: string;
+    /**
+     * Optional run correlation id. Not persisted (the Message table has no
+     * such column) — accepted so callers can pass it for log correlation.
+     */
+    runId?: string;
   }): Promise<void> {
     await this.prismaService.message.create({
       data: {

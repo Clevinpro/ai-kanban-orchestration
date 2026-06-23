@@ -82,8 +82,23 @@ export interface ChatMessage {
  */
 export type AiChatMessage = string | { system: string; user: string } | ChatMessage[];
 
+/**
+ * Per-call tuning for a single provider `chat()` invocation. All fields are
+ * optional so existing single-arg callers and providers stay valid.
+ */
+export interface AiChatOptions {
+  /** Hard cap on generated tokens for this call. */
+  maxTokens?: number;
+  /**
+   * Ask the provider to suppress its reasoning/thinking channel so the answer
+   * lands in `content`. Providers that ignore the flag fall back to the
+   * `reasoning_effort:'low'` knob they do honor.
+   */
+  disableThinking?: boolean;
+}
+
 export interface IAIProvider {
-  chat(message: AiChatMessage): Observable<string>;
+  chat(message: AiChatMessage, options?: AiChatOptions): Observable<string>;
   getActiveModel?(): Promise<string>;
 }
 

@@ -1,9 +1,5 @@
-import { CapabilityDetectorService } from './capability-detector.service';
-import {
-  isStructuredQuery,
-  isTechnicalQuery,
-  QueryRouterService,
-} from './query-router.service';
+import type { CapabilityDetectorService } from './capability-detector.service';
+import { isStructuredQuery, isTechnicalQuery, QueryRouterService } from './query-router.service';
 
 describe('isStructuredQuery', () => {
   it('matches single tag-shaped queries', () => {
