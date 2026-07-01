@@ -104,6 +104,29 @@ function getTestInfo(epic) {
   return { verdict, startedAt, endedAt };
 }
 
+// An IN-PROGRESS marker older than this is treated as orphaned — the Warp/iTerm
+// spawn failed, or the server died mid-launch, leaving a marker no live gate
+// will ever overwrite. A real gate (full-stack boot + verify) finishes well
+// under this, so the threshold never cancels a genuinely-running gate.
+const STALE_TEST_MS = 30 * 60 * 1000; // 30 min
+
+/**
+ * Epoch ms when the current IN-PROGRESS gate was launched, or null. Prefers the
+ * .test-started sidecar, falls back to the marker's Generated line. Used to
+ * detect orphaned markers so a failed spawn never blocks re-launch forever.
+ */
+function inProgressStartedMs(epic) {
+  try {
+    const t = Date.parse(fs.readFileSync(path.join(WORK_DIR, epic, '.test-started'), 'utf8').trim());
+    if (!isNaN(t)) return t;
+  } catch { /* no sidecar */ }
+  try {
+    const m = fs.readFileSync(path.join(WORK_DIR, epic, 'TEST-REPORT.md'), 'utf8').match(/^Generated:\s*(\S+)/m);
+    if (m) { const t = Date.parse(m[1]); if (!isNaN(t)) return t; }
+  } catch { /* no marker */ }
+  return null;
+}
+
 /**
  * Write the IN-PROGRESS marker report at test launch. /team-lead:test will
  * overwrite this file with the final PASS/FAIL report when it finishes.
@@ -482,6 +505,69 @@ function normalizeAgent(a) {
   return VALID_AGENTS.has(a) ? a : 'claude';
 }
 
+// ---------------------------------------------------------------------------
+// Terminal spawn — Warp (default) or iTerm (fallback).
+// Select with env KANBAN_TERMINAL=warp|iterm (default: warp).
+//
+// Warp has NO AppleScript `write text` API, NO CLI, and its `warp://launch`
+// command-exec is broken (warpdotdev/Warp#9007). The only way to auto-run a
+// command in a Warp tab is System Events UI scripting: activate Warp, open a
+// tab (Cmd+T), type the command, press Return. This REQUIRES granting the
+// spawning process (the one running this Node server, e.g. the terminal/iTerm
+// that launched `npm start`) macOS Accessibility permission
+// (System Settings → Privacy & Security → Accessibility). Without it the
+// keystrokes are silently dropped — set KANBAN_TERMINAL=iterm to fall back to
+// the reliable iTerm `write text` path.
+//
+// `innerCmd` is the exact shell command to run in the new tab — built ONLY from
+// the strict allowlists (VALID_AGENTS) + validated epic/task ids, never raw
+// user input, so it is safe to inject into the osascript literal.
+function spawnItermTab(innerCmd) {
+  spawn('osascript', [
+    '-e', `tell application "iTerm"`,
+    '-e', `  tell current window`,
+    '-e', `    create tab with default profile`,
+    '-e', `    tell current session`,
+    '-e', `      write text "${innerCmd}"`,
+    '-e', `    end tell`,
+    '-e', `  end tell`,
+    '-e', `end tell`,
+  ], { detached: true, stdio: 'ignore' }).unref();
+}
+
+function spawnWarpTab(innerCmd) {
+  // cd into the repo root first so claude/cursor pick up project context
+  // (CLAUDE.md, .claude/commands, skills, memory). The URI below already opens
+  // the tab in WORK_DIR; the explicit cd is belt-and-suspenders.
+  const full = `cd '${WORK_DIR}' && ${innerCmd}`;
+  // Tab creation is the flaky part of System Events: a Cmd+T sent while focus is
+  // still switching (browser → Warp) lands nowhere, so the tab never opens and
+  // the IN-PROGRESS marker orphans. Create the tab DETERMINISTICALLY via Warp's
+  // URI scheme (`new_tab?path=`) — OS-level, no keystroke, also pins cwd. Then
+  // System Events is only used for the parts a URI can't do: TYPE the command
+  // and press Return (Warp's `warp://launch` exec is broken — Warp#9007).
+  // Typing beats Cmd+V paste — paste silently no-ops when the new tab hasn't
+  // grabbed keyboard focus yet; keystroke-typing catches focus reliably. The
+  // 2.0s pre-delay lets the URI tab become the focused input first.
+  spawn('open', [`warp://action/new_tab?path=${WORK_DIR}`], { detached: true, stdio: 'ignore' }).unref();
+  spawn('osascript', [
+    '-e', `delay 2.0`, // let the URI tab fully open + take keyboard focus
+    '-e', `tell application "Warp" to activate`,
+    '-e', `delay 0.5`,
+    '-e', `tell application "System Events"`,
+    '-e', `  keystroke "${full}"`, // TYPE the command (Cmd+V paste flakes on focus)
+    '-e', `  delay 0.8`, // let the typed line settle before Return
+    '-e', `  key code 36`, // Return — actually run it
+    '-e', `end tell`,
+  ], { detached: true, stdio: 'ignore' }).unref();
+}
+
+function openAgentTab(innerCmd) {
+  const term = (process.env.KANBAN_TERMINAL || 'warp').toLowerCase();
+  if (term === 'iterm') return spawnItermTab(innerCmd);
+  return spawnWarpTab(innerCmd);
+}
+
 // PATCH /tasks/:id/status — update task status via drag-and-drop (D-05, D-06)
 app.patch('/tasks/:epic/:id/status', (req, res) => {
   try {
@@ -530,16 +616,7 @@ app.patch('/tasks/:epic/:id/status', (req, res) => {
       spawnedTasks.set(uid, Date.now());
       const agent = normalizeAgent(req.body.agent);
       const script = path.join(__dirname, 'run-task.sh');
-      spawn('osascript', [
-        '-e', `tell application "iTerm"`,
-        '-e', `  tell current window`,
-        '-e', `    create tab with default profile`,
-        '-e', `    tell current session`,
-        '-e', `      write text "bash '${script}' ${agent} ${epic}/${taskId}"`,
-        '-e', `    end tell`,
-        '-e', `  end tell`,
-        '-e', `end tell`,
-      ], { detached: true, stdio: 'ignore' }).unref();
+      openAgentTab(`bash '${script}' ${agent} ${epic}/${taskId}`);
       const task = parseTaskFile(found);
       return res.json({ ok: true, task });
     }
@@ -582,7 +659,15 @@ app.post('/epics/:epic/test', (req, res) => {
     // - FAIL: allowed — re-run verifies only the previously failed ACs.
     const verdict = readTestVerdict(epic);
     if (verdict === 'IN-PROGRESS') {
-      return res.status(409).json({ ok: false, alreadyRunning: true, error: 'Epic test already in progress: ' + epic });
+      // Block a duplicate launch ONLY while the marker is fresh. An orphaned
+      // marker (spawn failed / server died mid-launch) would otherwise block
+      // re-launch forever — age it out so the gate self-heals.
+      const startedMs = inProgressStartedMs(epic);
+      const orphaned = startedMs == null || (Date.now() - startedMs) > STALE_TEST_MS;
+      if (!orphaned) {
+        return res.status(409).json({ ok: false, alreadyRunning: true, error: 'Epic test already in progress: ' + epic });
+      }
+      // else: fall through and relaunch over the stale marker.
     }
     if (verdict === 'PASS') {
       return res.status(409).json({ ok: false, alreadyPassed: true, error: 'Epic test already passed: ' + epic + '. Delete TEST-REPORT.md to re-run.' });
@@ -601,16 +686,7 @@ app.post('/epics/:epic/test', (req, res) => {
 
     const agent = normalizeAgent(req.body.agent);
     const script = path.join(__dirname, 'run-test.sh');
-    spawn('osascript', [
-      '-e', `tell application "iTerm"`,
-      '-e', `  tell current window`,
-      '-e', `    create tab with default profile`,
-      '-e', `    tell current session`,
-      '-e', `      write text "bash '${script}' ${agent} ${epic}"`,
-      '-e', `    end tell`,
-      '-e', `  end tell`,
-      '-e', `end tell`,
-    ], { detached: true, stdio: 'ignore' }).unref();
+    openAgentTab(`bash '${script}' ${agent} ${epic}`);
 
     return res.json({ ok: true, launched: true });
   } catch (err) {
@@ -665,6 +741,10 @@ chokidar.watch(WORK_DIR + '/**/*.md', {
       // Drop the start-time sidecar so a stale start never shows for the next run.
       const epic = path.basename(path.dirname(f));
       try { fs.unlinkSync(path.join(WORK_DIR, epic, '.test-started')); } catch { /* already gone */ }
+      // Release the launch cooldown too — when the gate tab is closed mid-run
+      // run-test.sh deletes the IN-PROGRESS marker; without this the dedup guard
+      // would no-op the next launch (POST returns alreadyRunning, no new tab).
+      testedEpics.delete(epic);
       return pushTestEvent(epic, null);
     }
     // Only TASK-NNN.md deletions are board events — ignore TEST-REPORT.prev.md,
