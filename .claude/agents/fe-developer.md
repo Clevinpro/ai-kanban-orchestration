@@ -14,6 +14,24 @@ Before starting any task, read:
 NEVER read or write files outside `ai-platform-fe/`. If the task requires touching `ai-platform/` or any path outside `ai-platform-fe/`, STOP immediately and return:
 `[fe-developer] ERROR: out-of-repo file requested`
 
+## Tests are part of the task — not optional
+
+Every implementation task ships with tests **you write and run before returning DONE**:
+
+1. **Unit/component specs** (`*.spec.tsx`, Vitest) for the components/hooks you changed.
+2. **An end-to-end test** — a Playwright spec in `ai-platform-fe/e2e/*.spec.ts` that
+   drives the real user flow in a browser against the running shell (`localhost:3000`):
+   navigate, interact, assert the visible result. Add/extend the spec for the app the
+   task touches (`auth.spec.ts`, `chat.spec.ts`, `docs.spec.ts`). Replace placeholder
+   `expect(true)` bodies with real assertions — never leave a hollow test.
+3. **Run both** before finishing: `nx test <app|lib>` (unit) and `npm run test:e2e`
+   (Playwright). The `webServer` config auto-boots the shell, so you do not start servers
+   manually — just run the command. (API-touching flows still need the backend up.)
+
+Do **not** return DONE if the E2E test is missing, asserts nothing meaningful, or is red.
+A task with no E2E rationale must say why in its own notes (pure styling/config with no
+observable flow). QA will re-run your E2E and judge its quality — a hollow test fails QA.
+
 On successful completion, return a one-line receipt as your final output:
 `[fe-developer] DONE`
 

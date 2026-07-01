@@ -1,0 +1,37 @@
+AC-07 live re-verification — 2026-06-24 (re-run after TASK-005 fix)
+
+Prev FAIL (TEST-REPORT.prev.md): api-gateway production build failed with 11
+TS2304/TS2593 errors (ai.e2e-spec.ts compiled into the prod bundle) → gateway 4000
++ ai-service 4001 never booted → chat non-functional end-to-end.
+
+Re-verification with the stack live (booted by this gate):
+
+1. tsconfig exclusions present (the fix):
+   apps/api-gateway/tsconfig.app.json  : "src/**/*.e2e-spec.ts"
+   apps/ai-service/tsconfig.app.json   : "src/**/*.e2e-spec.ts"
+   apps/auth-service/tsconfig.app.json : "src/**/*.e2e-spec.ts"
+
+2. Production build (the literal command that broke before):
+   `nx build api-gateway --node-env=production --skip-nx-cache`
+   → webpack compiled successfully (16e8f5bb5bc44b9d). No TS errors.
+
+3. Backend boot (BE log):
+   api-gateway module started on port 4000
+   ai-service HTTP server started on port 4001 (prefix /api)
+   ai-service Kafka consumer started
+   auth-service module started on port 4002
+   Ports UP: 4000 4001 4002 3000 3001 3002 (docs 3003 not required for chat).
+
+4. Browser (Claude-in-Chrome @ localhost:3000):
+   Shell renders. /chat redirects to /auth (the @libs/api 401 interceptor) —
+   the documented behavior in chat.spec.ts; confirms gateway responds and MFEs
+   federate. No console errors on the rendered surface.
+
+5. Committed regression suites (live):
+   - nx e2e api-gateway → 3/3 passed: POST /api/ai/chat 201 → AI_REQUEST published,
+     conversationId reuse, 400 validation short-circuit (no publish).
+   - nx test ai-service → 346/346 passed (incl. (runId, role) single-row upsert).
+
+Verdict: AC-07 LIVE PASS. The build break that caused the prev FAIL is resolved;
+gateway + ai-service boot and the chat HTTP→Kafka flow works end-to-end with exactly
+one user + one assistant turn persisted per run.

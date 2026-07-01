@@ -1,0 +1,26 @@
+39:webpack compiled [1m[32msuccessfully[39m[22m (ec4d124ed1215bc3)
+46:webpack compiled [1m[32msuccessfully[39m[22m (25afd8a332a07081)
+163:webpack compiled with [1m[31m11 errors[39m[22m (16e8f5bb5bc44b9d)
+53:[1m[31mERROR[39m[22m in [1m./src/ai/ai.e2e-spec.ts:36:1[39m[22m
+54:[90mTS2593: [39mCannot find name 'describe'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha` and then add 'jest' or 'mocha' to the types field in your tsconfig.
+63:[1m[31mERROR[39m[22m in [1m./src/ai/ai.e2e-spec.ts:40:3[39m[22m
+64:[90mTS2304: [39mCannot find name 'beforeAll'.
+73:[1m[31mERROR[39m[22m in [1m./src/ai/ai.e2e-spec.ts:54:3[39m[22m
+74:[90mTS2304: [39mCannot find name 'afterAll'.
+83:[1m[31mERROR[39m[22m in [1m./src/ai/ai.e2e-spec.ts:58:3[39m[22m
+84:[90mTS2593: [39mCannot find name 'it'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha` and then add 'jest' or 'mocha' to the types field in your tsconfig.
+93:[1m[31mERROR[39m[22m in [1m./src/ai/ai.e2e-spec.ts:65:5[39m[22m
+94:[90mTS2304: [39mCannot find name 'expect'.
+103:[1m[31mERROR[39m[22m in [1m./src/ai/ai.e2e-spec.ts:72:5[39m[22m
+104:[90mTS2304: [39mCannot find name 'expect'.
+113:[1m[31mERROR[39m[22m in [1m./src/ai/ai.e2e-spec.ts:79:3[39m[22m
+114:[90mTS2593: [39mCannot find name 'it'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha` and then add 'jest' or 'mocha' to the types field in your tsconfig.
+123:[1m[31mERROR[39m[22m in [1m./src/ai/ai.e2e-spec.ts:85:5[39m[22m
+124:[90mTS2304: [39mCannot find name 'expect'.
+133:[1m[31mERROR[39m[22m in [1m./src/ai/ai.e2e-spec.ts:89:5[39m[22m
+134:[90mTS2304: [39mCannot find name 'expect'.
+143:[1m[31mERROR[39m[22m in [1m./src/ai/ai.e2e-spec.ts:94:3[39m[22m
+144:[90mTS2593: [39mCannot find name 'it'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha` and then add 'jest' or 'mocha' to the types field in your tsconfig.
+153:[1m[31mERROR[39m[22m in [1m./src/ai/ai.e2e-spec.ts:100:5[39m[22m
+154:[90mTS2304: [39mCannot find name 'expect'.
+163:webpack compiled with [1m[31m11 errors[39m[22m (16e8f5bb5bc44b9d)

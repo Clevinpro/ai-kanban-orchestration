@@ -23,4 +23,5 @@ Load `ai-platform/.claude/skills/be-conventions/SKILL.md` before implementing Ne
 
 - All code comments, documentation, and descriptions must be in **English**.
 - Do not create new NestJS apps or libs without checking `ai-platform/nx.json` first.
-- Run `nx test <app|lib>` to validate before marking a task complete.
+- Run `nx test <app|lib>` (Jest unit) to validate before marking a task complete.
+- Run the supertest E2E (`*.e2e-spec.ts`) via `nx e2e <app>` (alias `nx test-e2e <app>`) — every task that changes an endpoint/observable behaviour ships a real e2e asserting body + persisted state.

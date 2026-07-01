@@ -13,7 +13,7 @@ import { ConversationService } from '../conversation/conversation.service';
 import { SearchService, SimilaritySearchResult } from '../search/search.service';
 import { AiProviderFactory } from './providers/ai-provider.factory';
 import { QueryRouterService } from './query-router.service';
-import { TimeoutExceededError } from './safeguards/errors';
+import { TimeoutExceededError, isSafeguardError } from './safeguards/errors';
 import { IterationCap } from './safeguards/iteration-cap';
 import { KillSwitch } from './safeguards/kill-switch';
 import { Timeout } from './safeguards/timeout';
@@ -483,121 +483,153 @@ export class AiService {
 
     messages.push({ role: 'user', content: payload.message });
 
-    // Unbounded loop is safe: every iteration calls the safeguards, which throw
-    // once any limit is breached, terminating the loop.
-    for (;;) {
-      // Safeguard order per AC: cap → timeout → kill switch.
-      const iteration = iterationCap.increment();
-      timeout.check();
-      killSwitch.checkpoint();
+    // Accumulate every final-answer token streamed to the user this run. On a
+    // safeguard abort (timeout / token-budget / kill-switch / iteration-cap)
+    // the loop throws before reaching the `final` branch that persists, so this
+    // salvaged text is best-effort persisted below before the error rethrows.
+    let accumulatedAnswer = '';
 
-      onAgentEvent?.({
-        iteration,
-        status: 'planning',
-        budget: this.snapshotBudget(payload, iterationCap, tokenBudget, timeout),
-      });
+    try {
+      // Unbounded loop is safe: every iteration calls the safeguards, which throw
+      // once any limit is breached, terminating the loop.
+      for (;;) {
+        // Safeguard order per AC: cap → timeout → kill switch.
+        const iteration = iterationCap.increment();
+        timeout.check();
+        killSwitch.checkpoint();
 
-      // Stream the planning response. Marker detection happens on a buffered
-      // prefix; once a FINAL answer is recognized its tokens are forwarded
-      // incrementally to the subject so the final answer streams (AC6) rather
-      // than arriving as a single chunk. The full text is also accumulated to
-      // account against the token budget and to parse a tool-dispatch line.
-      let finalStreamingStarted = false;
-      const decision = await this.streamAgentDecision(
-        provider,
-        messages,
-        timeout,
-        (answerToken) => {
+        onAgentEvent?.({
+          iteration,
+          status: 'planning',
+          budget: this.snapshotBudget(payload, iterationCap, tokenBudget, timeout),
+        });
+
+        // Stream the planning response. Marker detection happens on a buffered
+        // prefix; once a FINAL answer is recognized its tokens are forwarded
+        // incrementally to the subject so the final answer streams (AC6) rather
+        // than arriving as a single chunk. The full text is also accumulated to
+        // account against the token budget and to parse a tool-dispatch line.
+        let finalStreamingStarted = false;
+        const decision = await this.streamAgentDecision(
+          provider,
+          messages,
+          timeout,
+          (answerToken) => {
+            if (!finalStreamingStarted) {
+              finalStreamingStarted = true;
+              onAgentEvent?.({
+                iteration,
+                status: 'final',
+                budget: this.snapshotBudget(payload, iterationCap, tokenBudget, timeout),
+              });
+              emitStatus('llm_generating', 'Model is generating a response...');
+            }
+            // Forward each final-answer token as it arrives, and accumulate it so
+            // a later safeguard abort can salvage the partial answer.
+            accumulatedAnswer += answerToken;
+            subject.next(answerToken);
+          },
+        );
+
+        tokenBudget.track({ text: decision.planText });
+
+        if (decision.kind === 'final') {
+          // Guard against an empty/whitespace answer. A reasoning model can emit
+          // only a stripped <think> block and no usable FINAL text, which would
+          // otherwise stream nothing and leave the client stuck on a perpetual
+          // "thinking" bubble. Substitute a fixed notice so the run always ends
+          // with visible terminal text.
+          const finalAnswer =
+            decision.answer.trim().length > 0 ? decision.answer : EMPTY_FINAL_ANSWER_FALLBACK;
+
+          // Cover the edge case where the answer was empty or arrived before the
+          // first forwarded token (e.g. no-marker fallback): ensure the final
+          // event/status are still emitted.
           if (!finalStreamingStarted) {
-            finalStreamingStarted = true;
             onAgentEvent?.({
               iteration,
               status: 'final',
               budget: this.snapshotBudget(payload, iterationCap, tokenBudget, timeout),
             });
             emitStatus('llm_generating', 'Model is generating a response...');
+            subject.next(finalAnswer);
           }
-          // Forward each final-answer token as it arrives.
-          subject.next(answerToken);
-        },
-      );
 
-      tokenBudget.track({ text: decision.planText });
+          if (payload.conversationId) {
+            emitStatus('save_response', 'Saving assistant response...');
+            await this.persistAssistantMessage(payload.conversationId, runId, finalAnswer);
+          }
 
-      if (decision.kind === 'final') {
-        // Guard against an empty/whitespace answer. A reasoning model can emit
-        // only a stripped <think> block and no usable FINAL text, which would
-        // otherwise stream nothing and leave the client stuck on a perpetual
-        // "thinking" bubble. Substitute a fixed notice so the run always ends
-        // with visible terminal text.
-        const finalAnswer =
-          decision.answer.trim().length > 0 ? decision.answer : EMPTY_FINAL_ANSWER_FALLBACK;
-
-        // Cover the edge case where the answer was empty or arrived before the
-        // first forwarded token (e.g. no-marker fallback): ensure the final
-        // event/status are still emitted.
-        if (!finalStreamingStarted) {
-          onAgentEvent?.({
-            iteration,
-            status: 'final',
-            budget: this.snapshotBudget(payload, iterationCap, tokenBudget, timeout),
-          });
-          emitStatus('llm_generating', 'Model is generating a response...');
-          subject.next(finalAnswer);
+          subject.complete();
+          return;
         }
 
-        if (payload.conversationId) {
-          emitStatus('save_response', 'Saving assistant response...');
-          await this.persistAssistantMessage(payload.conversationId, runId, finalAnswer);
+        // Tool branch: resolve and dispatch the planned tool through the registry.
+        // An unknown tool name is fed back as an error observation so the planner
+        // self-corrects on the next turn rather than crashing the run.
+        const tool = this.toolRegistry.get(decision.tool);
+
+        onAgentEvent?.({
+          iteration,
+          status: 'tool_call',
+          tool: decision.tool,
+          input: decision.input,
+          budget: this.snapshotBudget(payload, iterationCap, tokenBudget, timeout),
+        });
+        emitStatus('rag_search', 'Searching relevant context...');
+
+        let observation: string;
+        if (!tool) {
+          observation =
+            `Error: unknown tool "${decision.tool}". Available tools:\n` +
+            this.toolRegistry.describe();
+          this.logger.warn(
+            `Planner requested unknown tool "${decision.tool}"; feeding error back as observation`,
+            'AiService',
+          );
+        } else {
+          observation = await tool.run(decision.input, { conversationId: payload.conversationId });
         }
+        tokenBudget.track({ text: observation });
 
-        subject.complete();
-        return;
+        onAgentEvent?.({
+          iteration,
+          status: 'tool_result',
+          tool: decision.tool,
+          input: decision.input,
+          budget: this.snapshotBudget(payload, iterationCap, tokenBudget, timeout),
+        });
+
+        // Record the planner's tool request and the observation so the next
+        // planning step reasons over fresh evidence.
+        messages.push({ role: 'assistant', content: decision.planText });
+        messages.push({
+          role: 'user',
+          content: `Observation from ${TOOL_MARKER} ${decision.tool}: "${decision.input}":\n${observation}`,
+        });
       }
-
-      // Tool branch: resolve and dispatch the planned tool through the registry.
-      // An unknown tool name is fed back as an error observation so the planner
-      // self-corrects on the next turn rather than crashing the run.
-      const tool = this.toolRegistry.get(decision.tool);
-
-      onAgentEvent?.({
-        iteration,
-        status: 'tool_call',
-        tool: decision.tool,
-        input: decision.input,
-        budget: this.snapshotBudget(payload, iterationCap, tokenBudget, timeout),
-      });
-      emitStatus('rag_search', 'Searching relevant context...');
-
-      let observation: string;
-      if (!tool) {
-        observation =
-          `Error: unknown tool "${decision.tool}". Available tools:\n` +
-          this.toolRegistry.describe();
-        this.logger.warn(
-          `Planner requested unknown tool "${decision.tool}"; feeding error back as observation`,
-          'AiService',
-        );
-      } else {
-        observation = await tool.run(decision.input, { conversationId: payload.conversationId });
+    } catch (error) {
+      // Safeguard abort (timeout / token-budget / kill-switch / iteration-cap)
+      // or a provider error thrown before the `final` branch persisted. Salvage
+      // whatever answer text was already streamed this run, best-effort, before
+      // rethrowing. The write is idempotent on (runId, role) (TASK-003), so a
+      // later successful run for the same runId is a harmless no-op/update, and
+      // a persistence failure here is caught/logged so it never masks the
+      // original error surfaced to the client.
+      if (isSafeguardError(error) && payload.conversationId && accumulatedAnswer.length > 0) {
+        try {
+          await this.persistAssistantMessage(payload.conversationId, runId, accumulatedAnswer);
+        } catch (persistError) {
+          this.logger.error(
+            `Failed to salvage partial assistant answer on safeguard abort (original error still surfaced): ${
+              persistError instanceof Error ? persistError.message : String(persistError)
+            }`,
+            persistError instanceof Error ? persistError.stack : undefined,
+            'AiService',
+          );
+        }
       }
-      tokenBudget.track({ text: observation });
-
-      onAgentEvent?.({
-        iteration,
-        status: 'tool_result',
-        tool: decision.tool,
-        input: decision.input,
-        budget: this.snapshotBudget(payload, iterationCap, tokenBudget, timeout),
-      });
-
-      // Record the planner's tool request and the observation so the next
-      // planning step reasons over fresh evidence.
-      messages.push({ role: 'assistant', content: decision.planText });
-      messages.push({
-        role: 'user',
-        content: `Observation from ${TOOL_MARKER} ${decision.tool}: "${decision.input}":\n${observation}`,
-      });
+      throw error;
     }
   }
 

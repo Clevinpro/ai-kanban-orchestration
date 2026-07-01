@@ -43,7 +43,7 @@ ai-platform-fe/
 
 - **Build**: `nx serve <app>` (Rspack dev server) / `nx build <app>` (production build)
 - **Unit test**: `nx test <app|lib>` — Vitest
-- **E2E test**: `nx e2e <app>-e2e` — Playwright
+- **E2E test**: `npm run test:e2e` (root) → `playwright test`, specs in `ai-platform-fe/e2e/*.spec.ts`, `baseURL` `http://localhost:3000`. The `webServer` block in `playwright.config.ts` auto-boots the shell, so no manual `nx serve` is needed (`reuseExistingServer` reuses an already-running shell). Every task with an observable UI flow adds/extends a real spec here — no `expect(true)` placeholders.
 - **Import aliases**: `@libs/api`, `@libs/store`, `@libs/ui` — defined in vitest.config.ts resolve aliases
 - **State**: TanStack Query (`@tanstack/react-query`) for server state; `useSyncExternalStore` for singletons
 - **Forms**: `@tanstack/react-form` + `@tanstack/zod-form-adapter` + `zod` for validation

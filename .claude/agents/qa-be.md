@@ -30,6 +30,25 @@ Replace `/absolute/path/to/ai-platform` with the actual absolute path to the ai-
 - Output contains "No projects were affected" or "no projects" (case-insensitive) or output is empty with exit code 0: **PASS with note** (per D-06 — no affected tests is not a failure)
 - Exit code non-zero AND no test output detected: **FAIL** (nx invocation error)
 
+**Then run the E2E suite and judge its quality (mandatory):**
+
+The developer must have added/extended a supertest API E2E (`*.e2e-spec.ts`) for this task. Run it for the affected app — try `nx e2e <app>` first, fall back to `nx test-e2e <app>` (whichever target exists):
+
+```bash
+cd /absolute/path/to/ai-platform
+E2E_OUT=$(node_modules/.bin/nx e2e <app> --base=HEAD~1 --head=HEAD 2>&1 || node_modules/.bin/nx test-e2e <app> 2>&1)
+E2E_EXIT=$?
+```
+
+Then read the E2E spec files the task touched (Grep for new/changed `*.e2e-spec.ts`) and judge **quality**, not just green:
+
+- **E2E present?** A task with an endpoint/observable behaviour but no new/extended E2E → **FAIL** ("missing E2E coverage"). Only a task whose notes justify no E2E (pure migration/config) is exempt.
+- **Real assertions?** Reject hollow tests — `expect(true)`, asserting only HTTP 200 with no body/state check, or never invoking the changed path → **FAIL** ("hollow E2E").
+- **Covers the AC?** The E2E must exercise the actual flow the task's acceptance criteria describe. If it tests something adjacent, **FAIL** ("E2E does not cover the AC").
+- **Green?** `E2E_EXIT` non-zero with real failures → **FAIL**.
+
+A unit PASS with a missing/hollow/red E2E is an overall **FAIL**.
+
 **Append a QA Results block to the task file body using the Edit tool.**
 
 CRITICAL: Use capitalized `Status:` (capital S, NOT lowercase `status:`) to avoid triggering the task-state-guard.js hook. The hook regex `^status:\s*(\S+)` is case-sensitive and only matches lowercase — capital S is safe.
@@ -42,7 +61,8 @@ For PASS:
 
 Status: PASS
 
-[Test output summary, or "No affected tests found — no test coverage for this task." if no projects were affected]
+Unit: [output summary, or "No affected tests found" if no projects were affected]
+E2E: PASS — [which *.e2e-spec.ts ran, what flow it covers, quality verdict]
 ```
 
 For FAIL:
@@ -51,7 +71,9 @@ For FAIL:
 
 Status: FAIL
 
-[Test failure summary — number of failed tests, which projects failed, key error messages]
+Unit: [output summary]
+E2E: FAIL — [missing E2E | hollow E2E (reason) | does not cover AC | N failures]
+[Failure detail — number of failed tests, which projects failed, key error messages]
 ```
 
 **Return the one-line receipt as the final line of your output:**
@@ -61,6 +83,10 @@ Status: FAIL
 or
 
 `[qa-be] FAIL: N tests failed`
+
+or
+
+`[qa-be] FAIL: E2E missing/hollow — <reason>`
 
 or
 

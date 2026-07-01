@@ -14,6 +14,25 @@ Before starting any task, read:
 NEVER read or write files outside `ai-platform/`. If the task requires touching `ai-platform-fe/` or any path outside `ai-platform/`, STOP immediately and return:
 `[be-developer] ERROR: out-of-repo file requested`
 
+## Tests are part of the task — not optional
+
+Every implementation task ships with tests **you write and run before returning DONE**:
+
+1. **Unit specs** (`*.spec.ts`, Jest) for the logic you changed.
+2. **An end-to-end test** (`*.e2e-spec.ts`, supertest over the booted Nest app) that
+   exercises the task's API contract / user-visible flow through the real HTTP layer —
+   controller → service → DB, with external infra (Prisma/Kafka/Redis) replaced by the
+   e2e harness's in-memory doubles so it runs without docker. Add one when the task adds
+   or changes an endpoint or an observable behaviour; extend the existing e2e otherwise.
+3. **Run both** before finishing: `nx test <app>` (unit) and the e2e target
+   (`nx e2e <app>` / `nx test-e2e <app>`). The app's `webServer`/in-process bootstrap
+   means you do not boot anything manually — just run the target.
+
+Do **not** return DONE if the E2E test is missing, asserts nothing meaningful
+(no placeholder `expect(true)`), or is red. A task with no E2E rationale must say why
+in its own notes (pure migration/config with no endpoint). QA will re-run your E2E and
+judge its quality — a hollow test fails QA.
+
 On successful completion, return a one-line receipt as your final output:
 `[be-developer] DONE`
 

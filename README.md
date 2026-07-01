@@ -1,4 +1,4 @@
-# AI Agent Microservices
+# AI Kanban Orchestration
 
 Multi-agent development automation system. A TeamLead agent reads a SPEC, breaks it into task files, and an automated pipeline (Developer -> CodeReview -> QA -> TeamLeadCheck -> Done) executes each task.
 

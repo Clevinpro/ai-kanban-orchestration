@@ -18,7 +18,8 @@ allowed-tools:
 - It verifies the epic **holistically** — every acceptance criterion in the SPEC.md is checked against the aggregated evidence from all task files (Description, Code Review, QA Results, TeamLead Check), not task-by-task.
 - It does **not** change any **existing** task `status:` field. Never edit existing task frontmatter from this command. On a FAIL verdict it MAY create **new** fix task files (STEP 7) — that is the only task-file write it performs.
 - **Re-run semantics:** if a previous report exists with `Verdict: FAIL`, only the previously failed ACs are re-verified; PASS rows are carried over. A previous `Verdict: PASS` means the epic is closed — the kanban server blocks re-launch until `TEST-REPORT.md` is deleted.
-- **Live verification:** when the app is running (the `run-test.sh` wrapper boots backend + frontend and sets `TEAMLEAD_APP_LIVE=1`), UI-observable ACs are verified against the **running app** in a real browser via the **Claude-in-Chrome MCP** (`mcp__Claude_in_Chrome__*`, `localhost:3000`), not by reading task evidence alone. The wrapper launches the gate with `claude --chrome` so the in-process Chrome MCP is wired; a Chrome instance with the Claude extension must be connected (the wrapper reuses whatever browser is paired). When the app is not live, or no browser/Chrome MCP is available (e.g. a manual run without `--chrome`), the command falls back to evidence-only verification and says so in the report.
+- **App lifecycle is owned by this command, not the wrapper.** STEP 3.7 boots docker infra, applies Prisma migrations, starts backend + frontend with `run_in_background`, waits for readiness, and reads the boot logs **into context** — so a boot failure surfaces inline and is acted on, not hidden in a `/tmp` file. The `run-test.sh` wrapper does only one thing: `trap`-guaranteed teardown of the app ports when this run exits (even on a crash). Teardown is therefore NOT this command's responsibility — do not kill the servers yourself.
+- **Live verification:** once STEP 3.7 reports the app live, UI-observable ACs are verified against the **running app** in a real browser via the **Claude-in-Chrome MCP** (`mcp__Claude_in_Chrome__*`, `localhost:3000`), not by reading task evidence alone. The wrapper launches the gate with `claude --chrome` so the in-process Chrome MCP is wired; a Chrome instance with the Claude extension must be connected (the wrapper reuses whatever browser is paired). When STEP 3.7 could not bring the app up, or no browser/Chrome MCP is available (e.g. a manual run without `--chrome`), the command falls back to evidence-only verification and says so in the report.
 
 ---
 
@@ -66,6 +67,48 @@ Only proceed when **all** tasks are `done`.
 
 ---
 
+## STEP 3.7 — Boot the App (agent-owned lifecycle)
+
+This command boots the whole stack itself so the boot logs land in this context.
+The `run-test.sh` wrapper guarantees teardown on exit — you only bring it **up**.
+Set a working flag `APP_LIVE = 0`; flip it to `1` only when readiness passes.
+
+Paths: `BE_DIR = ai-platform/`, `FE_DIR = ai-platform-fe/`.
+Log files (so the runs survive across tool calls): `BE_LOG = /tmp/teamlead-test-be-<epic>.log`, `FE_LOG = /tmp/teamlead-test-fe-<epic>.log`.
+
+1. **Infra.** If `docker` is available, run (foreground): `cd ai-platform && docker compose up -d`. A failure here is a **WARN, not fatal** — infra may already be running; note it and continue.
+
+2. **Migrations (BE epics only).** If any task file in the epic has `^repo:[[:space:]]*be` (Grep), apply committed migrations before boot:
+   `cd ai-platform && npx --no-install prisma migrate deploy && npx --no-install prisma generate`.
+   Use **`migrate deploy` only** — never `migrate dev` (it can DROP the raw trgm/hnsw hybrid-search indexes). On failure, WARN (the backend may boot against a stale schema) and continue.
+
+3. **Free stale ports** from any previous run so boot does not `EADDRINUSE`:
+   `for p in 4000 4001 4002 3000 3001 3002 3003; do lsof -ti tcp:$p | xargs -r kill -9; done` (ignore errors).
+
+4. **Boot backend** in the background (`run_in_background: true`): `cd ai-platform && npm start > /tmp/teamlead-test-be-<epic>.log 2>&1`. Gateway **4000**, ai-service 4001, auth 4002.
+
+5. **Boot frontend** in the background (`run_in_background: true`): `cd ai-platform-fe && npm start > /tmp/teamlead-test-fe-<epic>.log 2>&1`. Shell **3000**, auth 3001, chat 3002, docs 3003.
+
+6. **Wait for readiness** — ports `4000 3000 3001 3002` must answer. Poll with a bounded Bash loop (≈5 min ceiling), e.g.:
+   ```bash
+   for port in 4000 3000 3001 3002; do
+     tries=0
+     until nc -z localhost "$port" 2>/dev/null; do
+       tries=$((tries+1)); [ "$tries" -ge 150 ] && { echo "TIMEOUT $port"; break; }
+       sleep 2
+     done
+   done
+   ```
+   rspack opens the port before the bundle finishes — once the shell answers, `sleep 5` before verifying.
+
+7. **On any port that times out or a boot that looks wrong**, read the tail of the relevant log (`BashOutput` on the background shell, or `tail -n 80` of the log file) **into this context**, summarize the failure, and decide: if the gateway (4000) and shell (3000) are up, set `APP_LIVE = 1` and proceed (note the degraded service in the report); if the core is down, leave `APP_LIVE = 0` and the gate falls back to evidence-only.
+
+8. When `4000 3000 3001 3002` all answered, set `APP_LIVE = 1`.
+
+Carry `APP_LIVE` forward — STEP 4.5 gates on it. **Do not tear the servers down** at any point; the wrapper's `trap` owns teardown when this run exits.
+
+---
+
 ## STEP 3.5 — Detect Re-Run (previous FAIL report)
 
 Determine whether this is a re-run after a failed gate:
@@ -96,16 +139,15 @@ Build a combined picture of what the whole epic delivered.
 
 ## STEP 4.5 — Live Browser Verification (when the app is up)
 
-The `run-test.sh` wrapper boots the whole stack before invoking this command:
-backend (`npm start` in `ai-platform/` → gateway **4000**, ai-service 4001, auth 4002) and
-frontend (`npm start` in `ai-platform-fe/` → shell **3000**, auth 3001, chat 3002, docs 3003).
+STEP 3.7 booted the stack: backend (gateway **4000**, ai-service 4001, auth 4002) and
+frontend (shell **3000**, auth 3001, chat 3002, docs 3003).
 The shell at **`http://localhost:3000`** is the module-federation host — verify there.
 
-**Gate this step:**
-- If `$TEAMLEAD_APP_LIVE` is `1`, the app is up — do live verification.
+**Gate this step on the `APP_LIVE` flag from STEP 3.7:**
+- If `APP_LIVE` is `1`, the app is up — do live verification.
 - Otherwise probe once with Bash: `curl -s -o /dev/null -w "%{http_code}" http://localhost:3000` (or `nc -z localhost 3000`). If it answers, proceed; if not, **skip this step**, mark live verification `SKIPPED (app not running)` and fall back to STEP 4 evidence for every AC.
 
-**Drive the running app via the Claude-in-Chrome MCP** (`mcp__Claude_in_Chrome__*`; the wrapper launches `claude --chrome`, so the in-process Chrome MCP is wired — do not boot servers yourself, the wrapper owns lifecycle):
+**Drive the running app via the Claude-in-Chrome MCP** (`mcp__Claude_in_Chrome__*`; the wrapper launches `claude --chrome`, so the in-process Chrome MCP is wired — the app was booted in STEP 3.7, do not boot or tear down servers here):
 
 1. **Attach to a browser.** Call `list_connected_browsers`. If one is returned, `select_browser` with its `deviceId` (prefer `isLocal: true`). If the list is empty, the Chrome MCP isn't usable in this run — mark live verification `SKIPPED (no browser connected)` and fall back to evidence-only. **Do not fail the gate solely because the browser was missing.**
 2. **Open a tab.** Call `tabs_context_mcp` with `createIfEmpty: true` to get a `tabId` (or `tabs_create_mcp`). Reuse that `tabId` for every subsequent call.
@@ -118,7 +160,9 @@ The shell at **`http://localhost:3000`** is the module-federation host — verif
 5. **Save screenshot evidence** for each UI-observable AC: `computer` with `action: "screenshot"`, `save_to_disk: true`, the `tabId`. The result returns a saved path — copy/move it into `<dir>/.test-evidence/AC-NN.jpg` with Bash (create the dir first) and reference that path in the report.
 6. Record per-AC live result: `LIVE PASS`, `LIVE FAIL`, or `N/A (not UI-observable)`.
 
-The wrapper tears the servers down after this command exits — no browser teardown needed here.
+**Committed E2E suites (regression evidence).** Each task ships its own E2E test (FE: Playwright `e2e/*.spec.ts`; BE: supertest `*.e2e-spec.ts`). With the app live, run them as deterministic regression evidence alongside the exploratory Claude-in-Chrome checks: `cd ai-platform-fe && npm run test:e2e` and `cd ai-platform && npx nx run-many --target=e2e` (ignore the BE suite if no `e2e` target exists yet). A committed-suite failure is evidence **against** the AC it covers, same weight as a `LIVE FAIL`. Record the run summary in the report's Live verification line.
+
+The `run-test.sh` wrapper tears the servers down (port-freeing `trap`) after this command exits — no server or browser teardown needed here.
 
 ---
 

@@ -2,7 +2,11 @@ import type { AgentEvent, AiChatOptions } from '@ai-platform/shared';
 import { Observable, of } from 'rxjs';
 import { AiService } from './ai.service';
 import { QueryRouterService } from './query-router.service';
-import { IterationCapExceededError, TokenBudgetExceededError } from './safeguards/errors';
+import {
+  IterationCapExceededError,
+  TimeoutExceededError,
+  TokenBudgetExceededError,
+} from './safeguards/errors';
 import { createRagSearchTool, RAG_SEARCH_TOOL_NAME } from './tools/rag-search.tool';
 import { TAG_QUERY_TOOL_NAME } from './tools/tag-query.tool';
 import { ToolRegistry } from './tools/tool-registry';
@@ -317,6 +321,91 @@ describe('AiService agent loop', () => {
     expect(error).toBeDefined();
     expect((error as { reason?: string }).reason).toBe('kill_switch');
     expect((error as Error).name).toBe('KillSwitchTrippedError');
+  });
+
+  it('safeguard abort mid-stream: best-effort persists the accumulated partial answer, once, with the run runId', async () => {
+    const mocks = buildService();
+    const conversationId = 'conv-salvage';
+
+    // Stream partial FINAL tokens, then abort the in-flight provider stream with
+    // a typed safeguard error (timeout) before the loop reaches the final-branch
+    // persist. The already-forwarded answer text must be salvaged.
+    mocks.chat.mockReturnValueOnce(
+      new Observable<string>((subscriber) => {
+        subscriber.next('FINAL: partial ');
+        subscriber.next('answer');
+        subscriber.error(new TimeoutExceededError());
+      }),
+    );
+
+    const { text, error } = await collectRun(mocks.service, {
+      message: 'salvage me',
+      mode: 'agent',
+      conversationId,
+    });
+
+    // The original safeguard error is still surfaced to the client.
+    expect(error).toBeInstanceOf(TimeoutExceededError);
+    expect(text).toBe('partial answer');
+
+    // Exactly one assistant salvage write, keyed by the run's runId, carrying the
+    // accumulated partial answer.
+    const assistantWrites = mocks.saveMessage.mock.calls
+      .map((call) => call[0] as { role: string; content: string; runId?: string })
+      .filter((args) => args.role === 'assistant');
+    expect(assistantWrites).toHaveLength(1);
+    expect(assistantWrites[0].content).toBe('partial answer');
+    expect(typeof assistantWrites[0].runId).toBe('string');
+    expect(assistantWrites[0].runId).not.toHaveLength(0);
+  });
+
+  it('safeguard abort with no streamed answer: no salvage write is attempted', async () => {
+    const mocks = buildService();
+    const conversationId = 'conv-no-salvage';
+
+    // Endless tool calls with a tiny cap: aborts via IterationCap before any
+    // FINAL token is ever forwarded, so there is nothing to salvage.
+    mocks.chat.mockReturnValue(of(`TOOL ${RAG_SEARCH_TOOL_NAME}: keep digging`));
+
+    const { error } = await collectRun(mocks.service, {
+      message: 'never answers',
+      mode: 'agent',
+      conversationId,
+      maxIterations: 2,
+    });
+
+    expect(error).toBeInstanceOf(IterationCapExceededError);
+
+    const assistantWrites = mocks.saveMessage.mock.calls
+      .map((call) => call[0] as { role: string })
+      .filter((args) => args.role === 'assistant');
+    expect(assistantWrites).toHaveLength(0);
+  });
+
+  it('safeguard abort with a failing salvage write: the original error is still surfaced', async () => {
+    const mocks = buildService();
+    const conversationId = 'conv-salvage-fail';
+
+    mocks.chat.mockReturnValueOnce(
+      new Observable<string>((subscriber) => {
+        subscriber.next('FINAL: partial answer');
+        subscriber.error(new TimeoutExceededError());
+      }),
+    );
+    // Salvage write fails; the loop must catch/log it and rethrow the original.
+    mocks.saveMessage.mockImplementation(async (args: { role: string }) => {
+      if (args.role === 'assistant') {
+        throw new Error('db down');
+      }
+    });
+
+    const { error } = await collectRun(mocks.service, {
+      message: 'salvage fails',
+      mode: 'agent',
+      conversationId,
+    });
+
+    expect(error).toBeInstanceOf(TimeoutExceededError);
   });
 
   it('emits a well-formed budget snapshot on agent events', async () => {

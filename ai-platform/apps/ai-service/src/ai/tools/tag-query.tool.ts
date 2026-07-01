@@ -17,8 +17,12 @@ export const TAG_QUERY_TOOL_DESCRIPTION =
   '"list" or "count", or a single tag token (<faq>) to look up which documents ' +
   'contain it (no similarity search, no LLM).';
 
-/** Canonical PostgreSQL regex for tag-shaped opening/self-closing markers. */
-const TAG_EXTRACTION_PATTERN = '<([a-z][a-z0-9-]*)/?>';
+/**
+ * Canonical PostgreSQL regex for tag-shaped opening/self-closing markers.
+ * Exported so sibling tools (e.g. `fetch-document.tool.ts`) reuse the exact
+ * same extraction predicate instead of duplicating the regex.
+ */
+export const TAG_EXTRACTION_PATTERN = '<([a-z][a-z0-9-]*)/?>';
 
 /** Matches a single self-contained tag token (`<faq>`, `<faq-item/>`). */
 const SINGLE_TAG_PATTERN = /^<([a-z][a-z0-9-]*)\/?>$/i;
