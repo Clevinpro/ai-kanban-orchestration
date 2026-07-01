@@ -140,6 +140,8 @@ Find the highest existing ID number (the numeric part after `TASK-`). New task I
 
 Reason carefully about the SPEC.md content. Derive a flat ordered list of tasks in recommended execution order (no wave grouping). Each task should represent a single focused action that takes approximately 10 minutes to execute.
 
+**Every implementation task MUST carry the E2E-coverage acceptance criterion** shown in the body template below — the developer writes and runs the E2E test, and QA re-runs it and judges its quality. Omit it only for tasks that ship no user-visible behaviour or API surface (pure config, docs, a migration with no endpoint), and when omitted, say why in the task's Technical Notes.
+
 For each task, prepare the full TASK-XXX.md file content:
 
 **Frontmatter fields (all 12 required):**
@@ -185,6 +187,10 @@ Field rules:
 
 - [ ] <Verifiable criterion>
 - [ ] <Verifiable criterion>
+- [ ] End-to-end coverage: a new/extended E2E test exercises this task's user-visible
+      flow or API contract and passes. (`repo: fe` → Playwright spec in
+      `ai-platform-fe/e2e/*.spec.ts`, run via `npm run test:e2e`; `repo: be` →
+      supertest API E2E `*.e2e-spec.ts` run via `nx e2e <app>` / `nx test-e2e <app>`.)
 
 ## Technical Notes
 

@@ -3,7 +3,6 @@ import { Controller, Get, Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
-import { AgentModule } from './agent/agent.module';
 import { AppModule } from './app/app.module';
 import { DocumentModule } from './document/document.module';
 import { VaultModule } from './vault/vault.module';
@@ -28,13 +27,7 @@ class HealthController {
 }
 
 @Module({
-  imports: [
-    LoggerModule,
-    ConfigModule.forRoot({ isGlobal: true }),
-    DocumentModule,
-    VaultModule,
-    AgentModule,
-  ],
+  imports: [LoggerModule, ConfigModule.forRoot({ isGlobal: true }), DocumentModule, VaultModule],
   controllers: [HealthController],
 })
 class HttpAppModule {}

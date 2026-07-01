@@ -14,30 +14,27 @@ export default meta;
 
 type Story = StoryObj<typeof ToolCallList>;
 
+// No tool calls yet -> renders nothing.
 export const Empty: Story = {
   args: {
-    toolCalls: [],
+    calls: [],
   },
 };
 
-export const WithCalls: Story = {
+// A single tool call still awaiting its result.
+export const SingleCall: Story = {
   args: {
-    toolCalls: [
-      {
-        tool: 'searchKnowledgeBase',
-        input: { query: 'invoice policy', topK: 5 },
-        resolved: true,
-      },
-      {
-        tool: 'getDocument',
-        input: { documentId: 'doc_123' },
-        resolved: true,
-      },
-      {
-        tool: 'summarize',
-        input: { length: 'short' },
-        resolved: false,
-      },
+    calls: [{ tool: 'similaritySearch', input: 'budget thresholds', state: 'pending' }],
+  },
+};
+
+// Multiple tool calls in mixed states.
+export const MultiCall: Story = {
+  args: {
+    calls: [
+      { tool: 'similaritySearch', input: 'budget thresholds', state: 'done' },
+      { tool: 'tagFetch', input: 'release-notes', state: 'done' },
+      { tool: 'customTool', input: 'still running', state: 'pending' },
     ],
   },
 };

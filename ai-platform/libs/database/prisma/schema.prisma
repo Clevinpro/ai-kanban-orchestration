@@ -82,10 +82,12 @@ model Message {
   conversationId String      @map("conversation_id")
   role           MessageRole
   content        String
+  runId          String?     @map("run_id")
   createdAt      DateTime    @default(now()) @map("created_at")
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
+  @@unique([runId, role])
   @@index([conversationId, createdAt])
   @@map("messages")
 }

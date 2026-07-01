@@ -23,19 +23,28 @@ const PORT = (!process.env.PORT || isNaN(rawPort)) ? 6111 : rawPort;
 // Task files live at .planning/work/<epic>/*.md (workspace root, two levels up from __dirname)
 // Use __dirname so WORK_DIR resolves correctly regardless of the process CWD.
 const WORK_DIR = path.join(__dirname, '..', '.planning', 'work');
+const TASK_RUN_DIR = path.join(__dirname, '.task-runs');
 
 // STOPPABLE statuses: active statuses that allow a stopped transition (D-02)
 // readyForDevelop and done are intentionally excluded.
 const STOPPABLE = ['inProgress', 'inReview', 'inTesting', 'forTeamLeadCheck'];
+
+// Backstop reconcile: heal tasks abandoned in a transient pipeline stage when an
+// abrupt kill skipped the runner's shell traps (run-task.sh on_exit/watchdog).
+// forTeamLeadCheck is intentionally EXCLUDED — a clean run can rest there awaiting
+// human review with a now-dead runner pid, so healing on pid-death alone would
+// clobber that pause; its terminal-close revert is handled by run-task.sh's
+// parent-dead check instead.
+const RECONCILE_STALE = ['inProgress', 'inReview', 'inTesting'];
 
 // Terminal-spawn dedup: track tasks for which we've already opened an iTerm tab,
 // so a re-sent inProgress (page reload, multiple browser tabs, autoRun race) does
 // NOT spawn a second terminal that would conflict with the running agent.
 // uid -> timestamp(ms). Cleared when the task leaves a running status (see chokidar).
 const spawnedTasks = new Map();
-// Cooldown covers the window between spawning the terminal and the agent writing
-// `status: inProgress` to the file — during which the on-disk guard alone is blind.
-const SPAWN_COOLDOWN_MS = 5 * 60 * 1000;
+// Short anti-double-click window after spawning a terminal. Longer dedup is based
+// on real runner liveness via .task-runs sidecar (pid), not this in-memory timer.
+const SPAWN_COOLDOWN_MS = 15 * 1000;
 
 // A task is considered "no longer running" (terminal closed / pipeline ended) in
 // these statuses — used to release the spawn guard so the task can be re-run later.
@@ -93,6 +102,29 @@ function getTestInfo(epic) {
   if (!startedAt && verdict === 'IN-PROGRESS') startedAt = generated;
   const endedAt = verdict === 'PASS' || verdict === 'FAIL' ? generated : null;
   return { verdict, startedAt, endedAt };
+}
+
+// An IN-PROGRESS marker older than this is treated as orphaned — the Warp/iTerm
+// spawn failed, or the server died mid-launch, leaving a marker no live gate
+// will ever overwrite. A real gate (full-stack boot + verify) finishes well
+// under this, so the threshold never cancels a genuinely-running gate.
+const STALE_TEST_MS = 30 * 60 * 1000; // 30 min
+
+/**
+ * Epoch ms when the current IN-PROGRESS gate was launched, or null. Prefers the
+ * .test-started sidecar, falls back to the marker's Generated line. Used to
+ * detect orphaned markers so a failed spawn never blocks re-launch forever.
+ */
+function inProgressStartedMs(epic) {
+  try {
+    const t = Date.parse(fs.readFileSync(path.join(WORK_DIR, epic, '.test-started'), 'utf8').trim());
+    if (!isNaN(t)) return t;
+  } catch { /* no sidecar */ }
+  try {
+    const m = fs.readFileSync(path.join(WORK_DIR, epic, 'TEST-REPORT.md'), 'utf8').match(/^Generated:\s*(\S+)/m);
+    if (m) { const t = Date.parse(m[1]); if (!isNaN(t)) return t; }
+  } catch { /* no marker */ }
+  return null;
 }
 
 /**
@@ -191,6 +223,84 @@ function loadAllTasks() {
   return tasks;
 }
 
+/**
+ * Build the run sidecar path for a task (written by run-task.sh).
+ */
+function taskRunFile(epic, taskId) {
+  return path.join(TASK_RUN_DIR, epic + '__' + taskId + '.json');
+}
+
+function removeTaskRunMeta(epic, taskId) {
+  try { fs.unlinkSync(taskRunFile(epic, taskId)); } catch { /* missing or already cleaned */ }
+}
+
+/**
+ * Read run metadata for a task. Returns null when missing/invalid.
+ */
+function readTaskRunMeta(epic, taskId) {
+  try {
+    const raw = fs.readFileSync(taskRunFile(epic, taskId), 'utf8');
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed.pid !== 'number') return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * True when the PID exists and can receive signals.
+ */
+function isPidAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Rewrite a task file from inProgress back to readyForDevelop and emit SSE.
+ */
+function resetTaskToReady(filePath, task) {
+  const now = new Date().toISOString();
+  let content = fs.readFileSync(filePath, 'utf8');
+  content = content.replace(/^status:\s*\S+/m, 'status: readyForDevelop');
+  content = content.replace(/^updated-at:\s*.+/m, 'updated-at: ' + now);
+  fs.writeFileSync(filePath, content, 'utf8');
+  pushEvent({ ...task, status: 'readyForDevelop', 'updated-at': now });
+}
+
+/**
+ * Heal stale tasks left in a transient pipeline stage (inProgress / inReview /
+ * inTesting — see RECONCILE_STALE) when their runner process is gone.
+ * This covers abrupt terminal closes where shell traps never execute.
+ */
+function reconcileStaleInProgressTasks() {
+  try {
+    const epics = fs.readdirSync(WORK_DIR, { withFileTypes: true });
+    for (const entry of epics) {
+      if (!entry.isDirectory()) continue;
+      const epic = entry.name;
+      const epicDir = path.join(WORK_DIR, epic);
+      for (const file of fs.readdirSync(epicDir)) {
+        if (!/^TASK-\d{3}\.md$/.test(file)) continue;
+        const filePath = path.join(epicDir, file);
+        const task = parseTaskFile(filePath);
+        if (!task || !RECONCILE_STALE.includes(task.status) || !task.id || !task.epic) continue;
+        const meta = readTaskRunMeta(epic, task.id);
+        if (!meta) continue; // no sidecar: likely a manual run, leave untouched
+        if (isPidAlive(meta.pid)) continue;
+        removeTaskRunMeta(epic, task.id);
+        resetTaskToReady(filePath, task);
+      }
+    }
+  } catch {
+    // WORK_DIR temporarily unavailable — skip this reconcile cycle
+  }
+}
+
 // ---------------------------------------------------------------------------
 // SSE client registry (T-05-08: connection leak prevention)
 // ---------------------------------------------------------------------------
@@ -229,6 +339,7 @@ function pushTestEvent(epic, info) {
 
 const app = express();
 app.use(express.json());
+fs.mkdirSync(TASK_RUN_DIR, { recursive: true });
 
 // Global CORS middleware — allows browser clients (Phase 6 Vite) to reach all endpoints.
 // Without this, POST /tasks/:id/stop fails the browser preflight (OPTIONS returns 404).
@@ -385,6 +496,78 @@ const VALID_STATUSES = new Set([
   // 'stopped' intentionally excluded — set only via POST /tasks/:id/stop
 ]);
 
+// VALID_AGENTS: which CLI drives the pipeline/gate for a launch. The board sends
+// a per-epic choice; anything unknown (or missing) falls back to 'claude'.
+// Passed as the first positional arg to run-task.sh / run-test.sh, so it MUST
+// stay a strict allowlist (no shell injection via the osascript write text).
+const VALID_AGENTS = new Set(['claude', 'cursor']);
+function normalizeAgent(a) {
+  return VALID_AGENTS.has(a) ? a : 'claude';
+}
+
+// ---------------------------------------------------------------------------
+// Terminal spawn — Warp (default) or iTerm (fallback).
+// Select with env KANBAN_TERMINAL=warp|iterm (default: warp).
+//
+// Warp has NO AppleScript `write text` API, NO CLI, and its `warp://launch`
+// command-exec is broken (warpdotdev/Warp#9007). The only way to auto-run a
+// command in a Warp tab is System Events UI scripting: activate Warp, open a
+// tab (Cmd+T), type the command, press Return. This REQUIRES granting the
+// spawning process (the one running this Node server, e.g. the terminal/iTerm
+// that launched `npm start`) macOS Accessibility permission
+// (System Settings → Privacy & Security → Accessibility). Without it the
+// keystrokes are silently dropped — set KANBAN_TERMINAL=iterm to fall back to
+// the reliable iTerm `write text` path.
+//
+// `innerCmd` is the exact shell command to run in the new tab — built ONLY from
+// the strict allowlists (VALID_AGENTS) + validated epic/task ids, never raw
+// user input, so it is safe to inject into the osascript literal.
+function spawnItermTab(innerCmd) {
+  spawn('osascript', [
+    '-e', `tell application "iTerm"`,
+    '-e', `  tell current window`,
+    '-e', `    create tab with default profile`,
+    '-e', `    tell current session`,
+    '-e', `      write text "${innerCmd}"`,
+    '-e', `    end tell`,
+    '-e', `  end tell`,
+    '-e', `end tell`,
+  ], { detached: true, stdio: 'ignore' }).unref();
+}
+
+function spawnWarpTab(innerCmd) {
+  // cd into the repo root first so claude/cursor pick up project context
+  // (CLAUDE.md, .claude/commands, skills, memory). The URI below already opens
+  // the tab in WORK_DIR; the explicit cd is belt-and-suspenders.
+  const full = `cd '${WORK_DIR}' && ${innerCmd}`;
+  // Tab creation is the flaky part of System Events: a Cmd+T sent while focus is
+  // still switching (browser → Warp) lands nowhere, so the tab never opens and
+  // the IN-PROGRESS marker orphans. Create the tab DETERMINISTICALLY via Warp's
+  // URI scheme (`new_tab?path=`) — OS-level, no keystroke, also pins cwd. Then
+  // System Events is only used for the parts a URI can't do: TYPE the command
+  // and press Return (Warp's `warp://launch` exec is broken — Warp#9007).
+  // Typing beats Cmd+V paste — paste silently no-ops when the new tab hasn't
+  // grabbed keyboard focus yet; keystroke-typing catches focus reliably. The
+  // 2.0s pre-delay lets the URI tab become the focused input first.
+  spawn('open', [`warp://action/new_tab?path=${WORK_DIR}`], { detached: true, stdio: 'ignore' }).unref();
+  spawn('osascript', [
+    '-e', `delay 2.0`, // let the URI tab fully open + take keyboard focus
+    '-e', `tell application "Warp" to activate`,
+    '-e', `delay 0.5`,
+    '-e', `tell application "System Events"`,
+    '-e', `  keystroke "${full}"`, // TYPE the command (Cmd+V paste flakes on focus)
+    '-e', `  delay 0.8`, // let the typed line settle before Return
+    '-e', `  key code 36`, // Return — actually run it
+    '-e', `end tell`,
+  ], { detached: true, stdio: 'ignore' }).unref();
+}
+
+function openAgentTab(innerCmd) {
+  const term = (process.env.KANBAN_TERMINAL || 'warp').toLowerCase();
+  if (term === 'iterm') return spawnItermTab(innerCmd);
+  return spawnWarpTab(innerCmd);
+}
+
 // PATCH /tasks/:id/status — update task status via drag-and-drop (D-05, D-06)
 app.patch('/tasks/:epic/:id/status', (req, res) => {
   try {
@@ -420,26 +603,20 @@ app.patch('/tasks/:epic/:id/status', (req, res) => {
       const onDisk = parseTaskFile(found);
       const recent = spawnedTasks.get(uid);
       const recentlySpawned = recent && (Date.now() - recent) < SPAWN_COOLDOWN_MS;
+      const runMeta = readTaskRunMeta(epic, taskId);
+      const runnerAlive = !!(runMeta && isPidAlive(runMeta.pid));
 
       // Dedup guard: a terminal is already running this task if either the file
       // already reads inProgress (agent flipped it) or we spawned one recently.
       // Skip the spawn instead of opening a conflicting second terminal.
-      if ((onDisk && onDisk.status === 'inProgress') || recentlySpawned) {
+      if ((onDisk && onDisk.status === 'inProgress') || runnerAlive || recentlySpawned) {
         return res.json({ ok: true, task: onDisk, alreadyRunning: true });
       }
 
       spawnedTasks.set(uid, Date.now());
+      const agent = normalizeAgent(req.body.agent);
       const script = path.join(__dirname, 'run-task.sh');
-      spawn('osascript', [
-        '-e', `tell application "iTerm"`,
-        '-e', `  tell current window`,
-        '-e', `    create tab with default profile`,
-        '-e', `    tell current session`,
-        '-e', `      write text "bash '${script}' ${epic}/${taskId}"`,
-        '-e', `    end tell`,
-        '-e', `  end tell`,
-        '-e', `end tell`,
-      ], { detached: true, stdio: 'ignore' }).unref();
+      openAgentTab(`bash '${script}' ${agent} ${epic}/${taskId}`);
       const task = parseTaskFile(found);
       return res.json({ ok: true, task });
     }
@@ -482,7 +659,15 @@ app.post('/epics/:epic/test', (req, res) => {
     // - FAIL: allowed — re-run verifies only the previously failed ACs.
     const verdict = readTestVerdict(epic);
     if (verdict === 'IN-PROGRESS') {
-      return res.status(409).json({ ok: false, alreadyRunning: true, error: 'Epic test already in progress: ' + epic });
+      // Block a duplicate launch ONLY while the marker is fresh. An orphaned
+      // marker (spawn failed / server died mid-launch) would otherwise block
+      // re-launch forever — age it out so the gate self-heals.
+      const startedMs = inProgressStartedMs(epic);
+      const orphaned = startedMs == null || (Date.now() - startedMs) > STALE_TEST_MS;
+      if (!orphaned) {
+        return res.status(409).json({ ok: false, alreadyRunning: true, error: 'Epic test already in progress: ' + epic });
+      }
+      // else: fall through and relaunch over the stale marker.
     }
     if (verdict === 'PASS') {
       return res.status(409).json({ ok: false, alreadyPassed: true, error: 'Epic test already passed: ' + epic + '. Delete TEST-REPORT.md to re-run.' });
@@ -499,17 +684,9 @@ app.post('/epics/:epic/test', (req, res) => {
     // and is pushed to all boards via the chokidar watcher below.
     writeInProgressReport(epic);
 
+    const agent = normalizeAgent(req.body.agent);
     const script = path.join(__dirname, 'run-test.sh');
-    spawn('osascript', [
-      '-e', `tell application "iTerm"`,
-      '-e', `  tell current window`,
-      '-e', `    create tab with default profile`,
-      '-e', `    tell current session`,
-      '-e', `      write text "bash '${script}' ${epic}"`,
-      '-e', `    end tell`,
-      '-e', `  end tell`,
-      '-e', `end tell`,
-    ], { detached: true, stdio: 'ignore' }).unref();
+    openAgentTab(`bash '${script}' ${agent} ${epic}`);
 
     return res.json({ ok: true, launched: true });
   } catch (err) {
@@ -553,6 +730,7 @@ chokidar.watch(WORK_DIR + '/**/*.md', {
       // re-run (e.g. after stop) is allowed to open a fresh terminal.
       if (t.id && t.epic && NOT_RUNNING.includes(t.status)) {
         spawnedTasks.delete(t.epic + '/' + t.id);
+        removeTaskRunMeta(t.epic, t.id);
       }
       pushEvent(t);
     }
@@ -563,6 +741,10 @@ chokidar.watch(WORK_DIR + '/**/*.md', {
       // Drop the start-time sidecar so a stale start never shows for the next run.
       const epic = path.basename(path.dirname(f));
       try { fs.unlinkSync(path.join(WORK_DIR, epic, '.test-started')); } catch { /* already gone */ }
+      // Release the launch cooldown too — when the gate tab is closed mid-run
+      // run-test.sh deletes the IN-PROGRESS marker; without this the dedup guard
+      // would no-op the next launch (POST returns alreadyRunning, no new tab).
+      testedEpics.delete(epic);
       return pushTestEvent(epic, null);
     }
     // Only TASK-NNN.md deletions are board events — ignore TEST-REPORT.prev.md,
@@ -599,3 +781,7 @@ app.use((req, res, next) => {
 app.listen(PORT, function () {
   console.log('kanban-server listening on :' + PORT);
 });
+
+// Run on boot + periodically so stale inProgress cards self-heal.
+reconcileStaleInProgressTasks();
+setInterval(reconcileStaleInProgressTasks, 5000);

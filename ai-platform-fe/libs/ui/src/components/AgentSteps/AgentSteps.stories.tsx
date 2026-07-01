@@ -14,32 +14,33 @@ export default meta;
 
 type Story = StoryObj<typeof AgentSteps>;
 
-export const Running: Story = {
+// No events yet -> renders nothing.
+export const Empty: Story = {
+  args: {
+    steps: [],
+  },
+};
+
+// Agent is mid-run: planned, called a tool, got a result, still iterating.
+export const MidRun: Story = {
   args: {
     steps: [
-      { iteration: 1, status: 'completed', label: 'Plan the task' },
-      { iteration: 2, status: 'completed', label: 'Search knowledge base' },
-      { iteration: 3, status: 'running', label: 'Call documents tool' },
+      { iteration: 1, status: 'planning' },
+      { iteration: 1, status: 'tool_call', tool: 'similaritySearch', input: 'budget thresholds' },
+      { iteration: 1, status: 'tool_result', tool: 'similaritySearch' },
+      { iteration: 2, status: 'planning' },
     ],
   },
 };
 
+// Full run ending in a final answer.
 export const Completed: Story = {
   args: {
     steps: [
-      { iteration: 1, status: 'completed', label: 'Plan the task' },
-      { iteration: 2, status: 'completed', label: 'Search knowledge base' },
-      { iteration: 3, status: 'completed', label: 'Compose final answer' },
-    ],
-  },
-};
-
-export const WithError: Story = {
-  args: {
-    steps: [
-      { iteration: 1, status: 'completed', label: 'Plan the task' },
-      { iteration: 2, status: 'completed', label: 'Search knowledge base' },
-      { iteration: 3, status: 'error', label: 'Call documents tool' },
+      { iteration: 1, status: 'planning' },
+      { iteration: 1, status: 'tool_call', tool: 'tagFetch', input: 'release-notes' },
+      { iteration: 1, status: 'tool_result', tool: 'tagFetch' },
+      { iteration: 2, status: 'final' },
     ],
   },
 };

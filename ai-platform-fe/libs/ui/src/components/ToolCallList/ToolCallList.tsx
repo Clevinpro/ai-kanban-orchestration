@@ -1,64 +1,69 @@
-import { CheckCircleOutlined, LoadingOutlined } from '@ant-design/icons';
-import { Empty, List, Tag, Typography } from 'antd';
+import { ApiOutlined } from '@ant-design/icons';
+import { List, Tag, Typography } from 'antd';
 
-import type { IToolCall as IAgentToolCall } from '../AgentSteps/AgentSteps';
+const { Text } = Typography;
 
-/**
- * UI-facing view type for a single invoked tool call.
- *
- * Extends the local `IToolCall` mirror from `AgentSteps` with an optional
- * `resolved` marker so the list can render a check mark once the call has
- * completed. Defined here (not imported from `apps/*` or backend packages) to
- * keep `libs/ui` free of backend/app dependencies.
- */
-export interface IToolCall extends IAgentToolCall {
-  resolved?: boolean;
+// View-only state of a tool call, derived from the `@libs/api` `AgentEvent`
+// status: a `tool_call` is still `pending` until the matching `tool_result`
+// arrives, at which point it becomes `done`. Kept local so `@libs/ui` stays
+// backend-agnostic (props in, no fetching).
+export type ToolCallState = 'pending' | 'done';
+
+// A single tool invocation row.
+export interface ToolCallItem {
+  // Dynamic tool name (from the backend registry). Never hardcoded.
+  tool: string;
+  // Optional serialized tool input.
+  input?: string;
+  // Lifecycle state derived from tool_call (pending) vs tool_result (done).
+  state: ToolCallState;
 }
 
 export interface ToolCallListProps {
-  toolCalls: IToolCall[];
+  // Ordered list of tool calls; rendered one row per call.
+  calls: ToolCallItem[];
 }
 
-function formatParams(input: Record<string, unknown>): string {
-  return JSON.stringify(input);
-}
+// Map each state to a readable label and tag color.
+const STATE_META: Record<ToolCallState, { label: string; color: string }> = {
+  pending: { label: 'Pending', color: 'processing' },
+  done: { label: 'Done', color: 'success' },
+};
 
-export function ToolCallList({ toolCalls }: ToolCallListProps) {
-  if (toolCalls.length === 0) {
-    return <Empty description="No tool calls yet" />;
+/**
+ * Presentational, view-only list of the agent's tool calls.
+ * Renders nothing when the list is empty.
+ */
+export function ToolCallList({ calls }: ToolCallListProps) {
+  if (calls.length === 0) {
+    return null;
   }
 
   return (
     <List
+      bordered
       size="small"
-      dataSource={toolCalls}
-      renderItem={(call, index) => (
-        <List.Item key={index}>
-          <List.Item.Meta
-            avatar={
-              call.resolved ? (
-                <CheckCircleOutlined
-                  style={{ color: 'var(--ant-color-success, #52c41a)' }}
-                  aria-label="resolved"
-                />
-              ) : (
-                <LoadingOutlined spin aria-label="pending" />
-              )
-            }
-            title={<Typography.Text strong>{call.tool}</Typography.Text>}
-            description={
-              <Typography.Text type="secondary" code style={{ fontSize: 12 }}>
-                {formatParams(call.input)}
-              </Typography.Text>
-            }
-          />
-          {call.resolved ? (
-            <Tag color="success">resolved</Tag>
-          ) : (
-            <Tag color="processing">pending</Tag>
-          )}
-        </List.Item>
-      )}
+      data-testid="tool-call-list"
+      dataSource={calls}
+      renderItem={(call, index) => {
+        const meta = STATE_META[call.state];
+        return (
+          <List.Item
+            data-testid={`tool-call-${index}`}
+            actions={[
+              <Tag key="state" color={meta.color}>
+                {meta.label}
+              </Tag>,
+            ]}
+          >
+            <List.Item.Meta
+              avatar={<ApiOutlined />}
+              title={<Text strong>{call.tool}</Text>}
+              description={call.input ? <Text type="secondary">{call.input}</Text> : undefined}
+            />
+          </List.Item>
+        );
+      }}
     />
   );
 }

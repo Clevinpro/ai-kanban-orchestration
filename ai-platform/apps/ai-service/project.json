@@ -73,6 +73,20 @@
         "jestConfig": "apps/ai-service/jest.config.ts",
         "passWithNoTests": true
       }
+    },
+    "e2e": {
+      "executor": "@nx/jest:jest",
+      "options": {
+        "jestConfig": "apps/ai-service/jest.e2e.config.ts",
+        "passWithNoTests": true
+      }
+    },
+    "test-e2e": {
+      "executor": "@nx/jest:jest",
+      "options": {
+        "jestConfig": "apps/ai-service/jest.e2e.config.ts",
+        "passWithNoTests": true
+      }
     }
   },
   "tags": []

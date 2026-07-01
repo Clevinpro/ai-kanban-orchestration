@@ -48,7 +48,8 @@
       "WebFetch(domain:cdn.openai.com)",
       "WebFetch(domain:docs.claude.com)",
       "WebFetch(domain:openai.github.io)",
-      "Bash(curl -s https://api.github.com/repos/__TRACKED_VAR__)"
+      "Bash(curl -s https://api.github.com/repos/__TRACKED_VAR__)",
+      "mcp__chrome-devtools__list_console_messages"
     ]
   },
   "autoUpdates": false

@@ -17,6 +17,20 @@ const VALID_TRANSITIONS = {
   stopped:          [],
 };
 
+// Investigation cards (RESEARCH.md, repo: inv) use a lean lifecycle: a single
+// card per epic with NO CodeReview/QA/TeamLeadCheck stages. The
+// research-investigator self-approves and writes done directly — the analog of
+// the normal pipeline's TeamLead Check → done step — so inProgress may go
+// straight to done (forTeamLeadCheck is accepted as an optional intermediate).
+// team-lead:test never applies to these cards.
+const RESEARCH_TRANSITIONS = {
+  readyForDevelop:  ['inProgress', 'stopped'],
+  inProgress:       ['forTeamLeadCheck', 'done', 'readyForDevelop', 'stopped'],
+  forTeamLeadCheck: ['done', 'inProgress', 'stopped'],
+  done:             [],
+  stopped:          [],
+};
+
 let input = '';
 const stdinTimeout = setTimeout(() => process.exit(0), 3000);
 process.stdin.setEncoding('utf8');
@@ -33,6 +47,10 @@ process.stdin.on('end', () => {
     // 2. Path filter: only guard task files in .planning/work/
     const filePath = tool_input?.file_path || tool_input?.path || '';
     if (!filePath.includes('.planning/work/') || !filePath.endsWith('.md')) process.exit(0);
+
+    // Investigation card: RESEARCH.md uses RESEARCH_TRANSITIONS and skips the
+    // TASK-pipeline gates (sequential ordering, CodeReview/QA/TLC annotations).
+    const isResearch = path.basename(filePath) === 'RESEARCH.md';
 
     // 2.5. Restore bypass: a `.restore` sentinel in the epic directory disables
     // all validation — used to recreate accidentally deleted task files verbatim
@@ -70,13 +88,13 @@ process.stdin.on('end', () => {
       // 6. File DOES exist — validate transition
       diskContent = fs.readFileSync(filePath, 'utf8');
       currentStatus = extractFrontmatterField(diskContent, 'status');
-      const allowed = VALID_TRANSITIONS[currentStatus] || [];
+      const allowed = (isResearch ? RESEARCH_TRANSITIONS : VALID_TRANSITIONS)[currentStatus] || [];
       if (!allowed.includes(newStatus)) {
         deny(`Invalid status transition: ${currentStatus} -> ${newStatus}. Allowed from ${currentStatus}: [${allowed.join(', ') || 'none'}]`);
       }
 
       // Sequential ordering (E-01) — a task may only start once the previous task in the epic is done
-      if (currentStatus === 'readyForDevelop' && newStatus === 'inProgress') {
+      if (!isResearch && currentStatus === 'readyForDevelop' && newStatus === 'inProgress') {
         const blocker = previousTaskBlocking(filePath);
         if (blocker) {
           deny(`Cannot start ${path.basename(filePath)} — previous task ${blocker.id} is ${blocker.status} (must be done). Complete it first.`);
@@ -84,20 +102,20 @@ process.stdin.on('end', () => {
       }
 
       // Annotation-gated reverse transitions (D-06) — rejection-only gating
-      if (currentStatus === 'inReview' && newStatus === 'inProgress') {
+      if (!isResearch && currentStatus === 'inReview' && newStatus === 'inProgress') {
         // inReview = CodeReview running; regression means CHANGES_REQUESTED from code-reviewer
         if (!diskContent.includes('CHANGES_REQUESTED')) {
           deny('Status regression inReview → inProgress requires a code review block with CHANGES_REQUESTED');
         }
       }
-      if (currentStatus === 'inTesting' && newStatus === 'inProgress') {
+      if (!isResearch && currentStatus === 'inTesting' && newStatus === 'inProgress') {
         // inTesting = QA running; regression means QA FAIL
         // [^#]* stops at the next ## heading so text in subsequent sections cannot satisfy this gate
         if (!diskContent.match(/## QA Results\b[^#]*Status: FAIL/)) {
           deny('Status regression inTesting → inProgress requires ## QA Results block with Status: FAIL');
         }
       }
-      if (currentStatus === 'forTeamLeadCheck' && newStatus === 'inProgress') {
+      if (!isResearch && currentStatus === 'forTeamLeadCheck' && newStatus === 'inProgress') {
         // Only allow if TeamLead Check block has Status: REJECTED
         // [^#]* stops at the next ## heading so text in subsequent sections cannot satisfy this gate
         if (!diskContent.match(/## TeamLead Check\b[^#]*Status: REJECTED/)) {

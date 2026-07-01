@@ -45,7 +45,8 @@ apps/<name>/
 
 - **Monorepo scope**: `@ai-platform/*` — libs use `@ai-platform/database`, `@ai-platform/kafka`, `@ai-platform/shared`
 - **Build**: `nx serve <app>` / `nx build <lib>` — Nx + webpack for apps, tsc for libs
-- **Test**: `nx test <app|lib>` — Jest
+- **Test**: `nx test <app|lib>` — Jest (unit specs `*.spec.ts`)
+- **E2E test**: supertest over the booted Nest app — specs `*.e2e-spec.ts`, run via `nx e2e <app>` (alias `nx test-e2e <app>`). The e2e harness boots the feature/app module and overrides external infra (Prisma/Kafka/Redis) with in-memory doubles, so it runs without docker. Every task that adds or changes an endpoint/observable behaviour adds/extends a real e2e — assert response body + persisted state, never just HTTP 200.
 - **Deps**: libs declare deps on other libs via `package.json` dependencies (e.g. kafka depends on shared)
 - **Modules**: Every feature is a self-contained NestJS module with controller → service → DTOs
 - **Validation**: class-transformer + class-validator DTOs

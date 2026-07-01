@@ -4,7 +4,7 @@ import { AiResponsePayload, KAFKA_TOPICS, LoggerService } from '@ai-platform/sha
 import { Body, Controller, MessageEvent, Post, Query, Req, Sse, UseGuards } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { JwtAuthGuard } from '../auth/auth.guard';
-import { ChatRequestDto } from './ai.dto';
+import { CancelChatRequestDto, ChatRequestDto } from './ai.dto';
 
 type AuthenticatedRequest = {
   user: {
@@ -37,13 +37,31 @@ export class AiController {
       conversationId,
     });
 
+    // Additive payload: forward each optional field only when provided so that
+    // omitting all of them publishes the exact same shape as before. Limits are
+    // forwarded independently of `mode` (they apply on the normal request).
+    const value: Record<string, unknown> = {
+      userId,
+      message: dto.message,
+      conversationId,
+    };
+
+    if (dto.mode !== undefined) {
+      value.mode = dto.mode;
+    }
+    if (dto.maxIterations !== undefined) {
+      value.maxIterations = dto.maxIterations;
+    }
+    if (dto.tokenBudget !== undefined) {
+      value.tokenBudget = dto.tokenBudget;
+    }
+    if (dto.timeoutMs !== undefined) {
+      value.timeoutMs = dto.timeoutMs;
+    }
+
     await this.kafkaProducer.publish(KAFKA_TOPICS.AI_REQUEST, {
       topic: KAFKA_TOPICS.AI_REQUEST,
-      value: {
-        userId,
-        message: dto.message,
-        conversationId,
-      },
+      value,
     });
 
     this.logger.log('AI chat request queued', AiController.name, {
@@ -55,6 +73,35 @@ export class AiController {
       status: 'processing',
       conversationId,
     };
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('chat/cancel')
+  async cancel(
+    @Req() req: AuthenticatedRequest,
+    @Body() dto: CancelChatRequestDto,
+  ): Promise<{ status: 'cancelling' }> {
+    const userId = this.getUserId(req);
+    const { conversationId } = dto;
+
+    this.logger.log('AI chat cancel requested', AiController.name, {
+      userId,
+      conversationId,
+    });
+
+    // Key by conversationId so all cancel signals for one conversation land on
+    // the same partition, preserving ordering relative to its run. The consumer
+    // (ai-service) trips the matching run's KillSwitch, ending it with an error.
+    await this.kafkaProducer.publish(KAFKA_TOPICS.AI_CANCEL, {
+      topic: KAFKA_TOPICS.AI_CANCEL,
+      key: conversationId,
+      value: {
+        conversationId,
+        userId,
+      },
+    });
+
+    return { status: 'cancelling' };
   }
 
   @UseGuards(JwtAuthGuard)

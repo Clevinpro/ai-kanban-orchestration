@@ -1,92 +1,100 @@
 import { Progress, Space, Typography } from 'antd';
 
+const { Text } = Typography;
+
+// View-only budget snapshot. Shape is aligned with the `@libs/api` `AgentBudget`
+// type, but kept local so `@libs/ui` stays backend-agnostic (props in, no fetching).
 export interface BudgetIndicatorProps {
   iteration: number;
-  maxIterations: number;
   tokensUsed: number;
-  tokenBudget: number;
   elapsedMs: number;
+  maxIterations: number;
+  tokenBudget: number;
   timeoutMs: number;
 }
 
-/** Ratio at/above which a bar turns yellow (warning). */
-const WARNING_THRESHOLD = 0.6;
-/** Ratio at/above which a bar turns red (danger). */
-const DANGER_THRESHOLD = 0.85;
+// Color thresholds: green below 70%, yellow 70-90%, red above 90%.
+const GREEN = '#52c41a';
+const YELLOW = '#faad14';
+const RED = '#f5222d';
 
-const COLOR_GREEN = '#52c41a';
-const COLOR_YELLOW = '#faad14';
-const COLOR_RED = '#ff4d4f';
-
-/**
- * Clamp a used/limit pair to a ratio in the [0, 1] range. Guards against a
- * zero or negative limit so the component never divides by zero or emits NaN.
- */
-function computeRatio(used: number, limit: number): number {
-  if (limit <= 0) {
+/** Clamp a used/limit ratio to a 0-100 percentage. */
+export function fillPercent(used: number, limit: number): number {
+  if (!Number.isFinite(limit) || limit <= 0) {
     return 0;
   }
-  const ratio = used / limit;
-  if (ratio < 0) {
+  const pct = (used / limit) * 100;
+  if (pct < 0) {
     return 0;
   }
-  if (ratio > 1) {
-    return 1;
-  }
-  return ratio;
+  return pct > 100 ? 100 : pct;
 }
 
-/**
- * Map a usage ratio to the bar color using the shared thresholds:
- * green `<60%` → yellow `<85%` → red `>=85%`.
- */
-function ratioToColor(ratio: number): string {
-  if (ratio >= DANGER_THRESHOLD) {
-    return COLOR_RED;
+/** Map a fill percentage to its threshold color. */
+export function thresholdColor(percent: number): string {
+  if (percent > 90) {
+    return RED;
   }
-  if (ratio >= WARNING_THRESHOLD) {
-    return COLOR_YELLOW;
+  if (percent >= 70) {
+    return YELLOW;
   }
-  return COLOR_GREEN;
+  return GREEN;
 }
 
 interface BudgetBarProps {
   label: string;
   used: number;
   limit: number;
+  /** Optional formatter for the "used / limit" caption. */
+  format?: (value: number) => string;
 }
 
-function BudgetBar({ label, used, limit }: BudgetBarProps) {
-  const ratio = computeRatio(used, limit);
-  const percent = Math.round(ratio * 100);
+function BudgetBar({ label, used, limit, format }: BudgetBarProps) {
+  const percent = fillPercent(used, limit);
+  const color = thresholdColor(percent);
+  const render = format ?? ((value: number) => String(value));
 
   return (
-    <div>
-      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-        {label}: {used} / {limit}
-      </Typography.Text>
-      <Progress percent={percent} strokeColor={ratioToColor(ratio)} size="small" />
+    <div data-testid={`budget-bar-${label.toLowerCase()}`} style={{ width: '100%' }}>
+      <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+        <Text type="secondary">{label}</Text>
+        <Text type="secondary">
+          {render(used)} / {render(limit)}
+        </Text>
+      </Space>
+      <Progress
+        percent={Math.round(percent)}
+        strokeColor={color}
+        showInfo={false}
+        size="small"
+        aria-label={`${label} budget usage`}
+      />
     </div>
   );
 }
 
+/** Format milliseconds as a compact seconds string. */
+function formatSeconds(ms: number): string {
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
 /**
- * Renders three Ant Design Progress bars (iterations, tokens, time) whose color
- * reflects how close each metric is to its configured limit.
+ * Presentational indicator rendering three progress bars (iterations, tokens, time)
+ * that shift green -> yellow -> red as usage approaches each limit.
  */
 export function BudgetIndicator({
   iteration,
-  maxIterations,
   tokensUsed,
-  tokenBudget,
   elapsedMs,
+  maxIterations,
+  tokenBudget,
   timeoutMs,
 }: BudgetIndicatorProps) {
   return (
-    <Space direction="vertical" style={{ width: '100%' }} size="small">
+    <Space orientation="vertical" size="small" style={{ width: '100%' }}>
       <BudgetBar label="Iterations" used={iteration} limit={maxIterations} />
       <BudgetBar label="Tokens" used={tokensUsed} limit={tokenBudget} />
-      <BudgetBar label="Time (ms)" used={elapsedMs} limit={timeoutMs} />
+      <BudgetBar label="Time" used={elapsedMs} limit={timeoutMs} format={formatSeconds} />
     </Space>
   );
 }

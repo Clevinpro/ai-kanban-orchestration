@@ -1,91 +1,88 @@
 import {
+  ApiOutlined,
+  BulbOutlined,
   CheckCircleOutlined,
-  ClockCircleOutlined,
-  CloseCircleOutlined,
-  ExclamationCircleOutlined,
-  LoadingOutlined,
+  FileSearchOutlined,
 } from '@ant-design/icons';
-import { Empty, Timeline, Typography } from 'antd';
+import { Timeline, Typography } from 'antd';
 import type { ReactNode } from 'react';
 
-/**
- * UI-facing view type for a single agent reasoning step.
- *
- * Field names intentionally mirror the backend agent event payloads so the
- * `useAgent` mapping (TASK-014) is a trivial pass-through. Do NOT import from
- * `apps/*` or backend packages here — `libs/ui` owns this view type.
- */
-export interface IAgentStep {
-  iteration: number;
-  status: string;
-  label?: string;
-}
+const { Text } = Typography;
 
-/**
- * Local mirror of the backend tool-call payload. Defined here (not imported)
- * to keep `libs/ui` free of backend/app dependencies and avoid circular deps.
- */
-export interface IToolCall {
-  tool: string;
-  input: Record<string, unknown>;
+// View-only agent step status. Shape is aligned with the `@libs/api` `AgentEvent`
+// type, but kept local so `@libs/ui` stays backend-agnostic (props in, no fetching).
+export type AgentStepStatus = 'planning' | 'tool_call' | 'tool_result' | 'final';
+
+// A single reason->act step in the agent timeline.
+export interface AgentStepItem {
+  iteration: number;
+  status: AgentStepStatus;
+  // Dynamic tool name (only present for tool_call / tool_result). Never hardcoded.
+  tool?: string;
+  input?: string;
 }
 
 export interface AgentStepsProps {
-  steps: IAgentStep[];
+  // Ordered list of steps; rendered top-to-bottom as a vertical timeline.
+  steps: AgentStepItem[];
 }
 
-const RUNNING_STATUSES = new Set(['running', 'in_progress', 'inprogress', 'active', 'pending']);
-const SUCCESS_STATUSES = new Set(['completed', 'complete', 'done', 'success', 'succeeded']);
-const ERROR_STATUSES = new Set(['error', 'failed', 'failure']);
-
-type StepVisual = {
-  icon: ReactNode;
+interface StatusMeta {
+  label: string;
   color: string;
+  icon: ReactNode;
+}
+
+// Map each status to a readable label, timeline dot color, and icon.
+const STATUS_META: Record<AgentStepStatus, StatusMeta> = {
+  planning: { label: 'Planning', color: 'blue', icon: <BulbOutlined /> },
+  tool_call: { label: 'Tool call', color: 'orange', icon: <ApiOutlined /> },
+  tool_result: { label: 'Tool result', color: 'cyan', icon: <FileSearchOutlined /> },
+  final: { label: 'Final answer', color: 'green', icon: <CheckCircleOutlined /> },
 };
 
-function getStepVisual(status: string): StepVisual {
-  const normalized = status.trim().toLowerCase();
-
-  if (RUNNING_STATUSES.has(normalized)) {
-    return { icon: <LoadingOutlined spin />, color: 'blue' };
+/** Build the human-readable label for a step, appending the dynamic tool name when present. */
+export function stepLabel(step: AgentStepItem): string {
+  const base = STATUS_META[step.status].label;
+  if (step.tool && (step.status === 'tool_call' || step.status === 'tool_result')) {
+    return `${base}: ${step.tool}`;
   }
-
-  if (SUCCESS_STATUSES.has(normalized)) {
-    return { icon: <CheckCircleOutlined />, color: 'green' };
-  }
-
-  if (ERROR_STATUSES.has(normalized)) {
-    return { icon: <CloseCircleOutlined />, color: 'red' };
-  }
-
-  if (normalized === 'waiting' || normalized === 'queued') {
-    return { icon: <ClockCircleOutlined />, color: 'gray' };
-  }
-
-  return { icon: <ExclamationCircleOutlined />, color: 'gray' };
+  return base;
 }
 
+/**
+ * Presentational, view-only timeline of an agent's reason->act steps.
+ * Renders nothing when the step list is empty.
+ */
 export function AgentSteps({ steps }: AgentStepsProps) {
   if (steps.length === 0) {
-    return <Empty description="No agent steps yet" />;
+    return null;
   }
 
-  const items = steps.map((step) => {
-    const { icon, color } = getStepVisual(step.status);
-
-    return {
-      dot: icon,
-      color,
-      children: (
-        <Typography.Text>
-          {step.label ?? `Step ${step.iteration}`}
-          <Typography.Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>
-            {step.status}
-          </Typography.Text>
-        </Typography.Text>
-      ),
-    };
-  });
-
-  return <Timeline items={items} />;
+  return (
+    <Timeline
+      data-testid="agent-steps"
+      items={steps.map((step, index) => {
+        const meta = STATUS_META[step.status];
+        return {
+          key: `${step.iteration}-${step.status}-${index}`,
+          color: meta.color,
+          icon: meta.icon,
+          content: (
+            <div data-testid={`agent-step-${index}`}>
+              <Text strong>{stepLabel(step)}</Text>
+              <Text type="secondary" style={{ marginInlineStart: 8 }}>
+                #{step.iteration}
+              </Text>
+              {step.input ? (
+                <div>
+                  <Text type="secondary">{step.input}</Text>
+                </div>
+              ) : null}
+            </div>
+          ),
+        };
+      })}
+    />
+  );
 }

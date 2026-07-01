@@ -8,12 +8,27 @@ type ConversationPrismaClient = {
   message: {
     findMany(args: {
       where: { conversationId: string };
-      orderBy: { createdAt: 'asc' };
+      orderBy: { createdAt: 'asc' | 'desc' };
       take: number;
       select: { role: true; content: true };
     }): Promise<ChatMessage[]>;
     create(args: {
-      data: { conversationId: string; role: MessageRole; content: string };
+      data: {
+        conversationId: string;
+        role: MessageRole;
+        content: string;
+        runId?: string;
+      };
+    }): Promise<unknown>;
+    upsert(args: {
+      where: { runId_role: { runId: string; role: MessageRole } };
+      create: {
+        conversationId: string;
+        role: MessageRole;
+        content: string;
+        runId: string;
+      };
+      update: Record<string, never>;
     }): Promise<unknown>;
   };
   conversation: {
@@ -33,32 +48,49 @@ export class ConversationService {
   ) {}
 
   async loadHistory(conversationId: string): Promise<ChatMessage[]> {
+    // Load the newest MAX_HISTORY_MESSAGES (desc), then reverse to chronological
+    // (oldest->newest) order so the planner receives the live tail in natural order.
     const messages = await this.prismaService.message.findMany({
       where: { conversationId },
-      orderBy: { createdAt: 'asc' },
+      orderBy: { createdAt: 'desc' },
       take: MAX_HISTORY_MESSAGES,
       select: { role: true, content: true },
     });
 
+    const chronological = messages.reverse();
+
     this.logger.log(
-      `Loaded history: conversationId=${conversationId}, count=${messages.length}`,
+      `Loaded history: conversationId=${conversationId}, count=${chronological.length}`,
       'ConversationService',
     );
 
-    return messages;
+    return chronological;
   }
 
   async saveMessage(params: {
     conversationId: string;
     role: MessageRole;
     content: string;
+    /**
+     * Optional run correlation id. When supplied, the write is idempotent:
+     * keyed on the (runId, role) unique constraint so a redelivered run
+     * upserts a no-op/update instead of creating a duplicate row.
+     */
+    runId?: string;
   }): Promise<void> {
+    const { conversationId, role, content, runId } = params;
+
+    if (runId !== undefined) {
+      await this.prismaService.message.upsert({
+        where: { runId_role: { runId, role } },
+        create: { conversationId, role, content, runId },
+        update: {},
+      });
+      return;
+    }
+
     await this.prismaService.message.create({
-      data: {
-        conversationId: params.conversationId,
-        role: params.role,
-        content: params.content,
-      },
+      data: { conversationId, role, content },
     });
   }
 

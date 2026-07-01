@@ -38,18 +38,17 @@ function makeFactory(providerEnv: string | undefined): {
 }
 
 // ---------------------------------------------------------------------------
-// getProvider dispatch
+// Config-only dev/prod provider switch (AI_PROVIDER via ConfigService)
 // ---------------------------------------------------------------------------
 
 describe('AiProviderFactory.getProvider', () => {
-  it('returns ClaudeProvider when AI_PROVIDER=claude', () => {
-    const { factory, claudeProvider } = makeFactory('claude');
-    expect(factory.getProvider()).toBe(claudeProvider);
-  });
-
-  it('returns OllamaProvider when AI_PROVIDER=ollama', () => {
-    const { factory, ollamaProvider } = makeFactory('ollama');
-    expect(factory.getProvider()).toBe(ollamaProvider);
+  it.each([
+    ['claude', 'claudeProvider'] as const,
+    ['ollama', 'ollamaProvider'] as const,
+    ['lmstudio', 'lmStudioProvider'] as const,
+  ])('returns the matching provider when AI_PROVIDER=%s', (providerEnv, providerKey) => {
+    const deps = makeFactory(providerEnv);
+    expect(deps.factory.getProvider()).toBe(deps[providerKey]);
   });
 
   it('defaults to OllamaProvider when AI_PROVIDER is unset', () => {
@@ -57,12 +56,7 @@ describe('AiProviderFactory.getProvider', () => {
     expect(factory.getProvider()).toBe(ollamaProvider);
   });
 
-  it('returns LmStudioProvider when AI_PROVIDER=lmstudio', () => {
-    const { factory, lmStudioProvider } = makeFactory('lmstudio');
-    expect(factory.getProvider()).toBe(lmStudioProvider);
-  });
-
-  it('throws for an unknown provider value', () => {
+  it('throws for an unsupported AI_PROVIDER value', () => {
     const { factory } = makeFactory('huggingface');
     expect(() => factory.getProvider()).toThrow('Unsupported AI_PROVIDER: huggingface');
   });

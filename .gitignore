@@ -2,6 +2,7 @@
 .DS_Store
 .nx/
 .vscode/
+.idea/
 
 # Obsidian vault — exclude transient workspace state and trash; keep app.json tracked
 docs/obsidian-vault/.obsidian/workspace.json

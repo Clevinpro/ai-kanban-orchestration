@@ -24,4 +24,4 @@ Load `ai-platform-fe/.claude/skills/fe-conventions/SKILL.md` before implementing
 - All code comments, documentation, and descriptions must be in **English**.
 - Do not create new MFE apps or libs without checking `ai-platform-fe/nx.json` first.
 - Run `nx test <app|lib>` (Vitest) to validate unit tests before marking a task complete.
-- Run `nx e2e <app>-e2e` (Playwright) for E2E tests.
+- Run `npm run test:e2e` (Playwright; specs in `e2e/*.spec.ts`, `webServer` auto-boots the shell) for E2E tests. Every task with an observable UI flow ships a real spec — no `expect(true)` placeholders.

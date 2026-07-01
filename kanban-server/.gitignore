@@ -1,0 +1,2 @@
+# Runtime task-run sidecars (per-launch PID metadata) — transient, never commit.
+.task-runs/

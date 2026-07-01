@@ -4,6 +4,7 @@ import { formatDuration, fmtDate } from '../timeUtils';
 function repoBadge(repo) {
   if (repo === 'be') return 'bg-blue-100 text-blue-700';
   if (repo === 'fe') return 'bg-purple-100 text-purple-700';
+  if (repo === 'inv') return 'bg-amber-100 text-amber-700'; // investigation (RESEARCH.md)
   return 'bg-gray-100 text-gray-700';
 }
 
@@ -22,20 +23,22 @@ const TaskCard = React.forwardRef(({ task, isDone }, ref) => {
       >
         {task.title}
       </div>
-      <div className="flex items-center gap-1 flex-wrap mt-auto">
-        <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${repoBadge(task.repo)}`}>
-          {(task.repo ?? '').toUpperCase()}
-        </span>
-        <span className="text-gray-500 truncate flex-1">
-          {task.epic}
-          <span className="text-gray-400 ml-1">#{parseInt((task.id || '').replace(/\D/g, ''), 10) || ''}</span>
-        </span>
-        <span className="ml-auto flex items-center gap-0.5 text-teal-500 font-mono">
-          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-          </svg>
-          {task.complexity}
-        </span>
+      <div className="flex flex-col gap-1 mt-auto">
+        <div className="flex items-center gap-1">
+          <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${repoBadge(task.repo)}`}>
+            {(task.repo ?? '').toUpperCase()}
+          </span>
+          <span className="text-gray-500 truncate flex-1">{task.epic}</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <span className="pl-1.5 text-gray-400 font-mono">#{parseInt((task.id || '').replace(/\D/g, ''), 10) || ''}</span>
+          <span className="ml-auto flex items-center gap-0.5 text-teal-500 font-mono">
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+            {task.complexity}
+          </span>
+        </div>
       </div>
       {isDone && (startedAt || completedAt) && (
         <div className="mt-2 text-[10px] text-gray-400 flex items-center gap-1.5 flex-wrap">

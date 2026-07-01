@@ -4,6 +4,9 @@
   "scripts": {
     "lint": "nx run-many --target=lint",
     "lint:fix": "nx run-many --target=lint --fix",
+    "build": "npm run build:be && npm run build:fe",
+    "build:be": "npm --prefix ai-platform run build",
+    "build:fe": "npm --prefix ai-platform-fe run build",
     "prepare": "husky",
     "vault:sync": "bash scripts/sync-vault.sh"
   },

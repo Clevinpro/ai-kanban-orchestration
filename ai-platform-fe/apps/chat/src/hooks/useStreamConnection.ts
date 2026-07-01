@@ -1,16 +1,18 @@
-import { streamMessage } from '@libs/api';
+import { streamMessage, type AgentEvent } from '@libs/api';
 import { useCallback, useEffect, useRef } from 'react';
 
 const RECONNECT_IDLE_TIMEOUT_MS = 45_000;
 
 type AiSsePayload = {
   userId?: string;
-  event?: 'status' | 'chunk' | 'complete' | 'error';
+  event?: 'status' | 'chunk' | 'complete' | 'error' | 'agent';
   stage?: string;
   message?: string;
   result?: string;
   conversationId?: string;
   error?: string;
+  // Present when `event === 'agent'`: carries the tool-use progress payload.
+  agent?: AgentEvent;
 };
 
 export type StreamHandlers = {
@@ -19,6 +21,7 @@ export type StreamHandlers = {
   onComplete: (resolvedConversationId: string | null) => void;
   onError: (message?: string) => void;
   onConversationId: (id: string) => void;
+  onAgentEvent: (event: AgentEvent) => void;
   onFallback: () => void;
 };
 
@@ -81,6 +84,15 @@ export function useStreamConnection() {
 
       if (payload.event === 'error') {
         handlers.onError(payload.error);
+        return;
+      }
+
+      // Route agent tool/budget progress before generic chunk handling so an
+      // agent payload is never mistaken for a chunk token. Guard a missing body.
+      if (payload.event === 'agent') {
+        if (payload.agent) {
+          handlers.onAgentEvent(payload.agent);
+        }
         return;
       }
 
